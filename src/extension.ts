@@ -1,5 +1,5 @@
 ﻿/**
- * VS Code Agent Bridge  v3.3  Robust Build
+ * VS Code Agent Bridge  v3.4  Advanced Automation
  * HTTP server on :3131 giving agents full VS Code + Copilot access.
  *
  * ENDPOINTS
@@ -33,6 +33,7 @@ import * as http   from 'http';
 import * as https  from 'https';
 import * as fs     from 'fs';
 import * as np     from 'path';
+import * as os     from 'os';
 import { exec }    from 'child_process';
 
 const PORT_START  = 3131;
@@ -182,8 +183,17 @@ async function route(req:http.IncomingMessage, res:http.ServerResponse){
 
   if(meth==='OPTIONS'){send(res,200,{});return;}
 
-  // Optional auth: if agentBridge.authToken is set, all requests except /health must supply it
-  const cfgAuth = vscode.workspace.getConfiguration('agentBridge').get<string>('authToken','');
+  // Optional auth: if agentBridge.authToken is set (VS Code settings or ~/.agent-bridge/config.json), all requests except /health must supply it
+  const cfgAuth = (()=>{
+    let t = vscode.workspace.getConfiguration('agentBridge').get<string>('authToken','');
+    if(!t){
+      try{
+        const localCfg=JSON.parse(fs.readFileSync(np.join(os.homedir(),'.agent-bridge','config.json'),'utf-8'));
+        t=localCfg.auth_token??'';
+      }catch{}
+    }
+    return t;
+  })();
   if(cfgAuth && path!=='/health'){
     const authHeader = (req.headers['authorization']??'').replace(/^Bearer\s+/i,'');
     if(authHeader!==cfgAuth){
@@ -197,7 +207,7 @@ async function route(req:http.IncomingMessage, res:http.ServerResponse){
     send(res,200,{ok:true,port,
       models:models.map(m=>m.name),
       workspace:vscode.workspace.workspaceFolders?.[0]?.uri.fsPath??null,
-      version:'3.3',
+      version:'3.4',
     });
     return;
   }
@@ -558,13 +568,27 @@ async function route(req:http.IncomingMessage, res:http.ServerResponse){
       let slackChannel:string = String(b.channel??cfg.get<string>('slackChannel',''));
       // Fallback: load from a settings.json sidecar if VS Code settings not configured
       if(!slackToken){
-        try{
-          const sidecar = np.join(process.env.USERPROFILE??require('os').homedir(),
-            'Documents','agent-bridge-config','settings.json');
-          const sidecarData = JSON.parse(fs.readFileSync(sidecar,'utf-8'));
-          slackToken = sidecarData.slack_bot_token??'';
-          if(!slackChannel) slackChannel = sidecarData.slack_channel??'';
-        }catch{}
+        // Standard per-user config: ~/.agent-bridge/config.json
+        // Each user creates this file with their own keys — nothing is shared or hardcoded
+        const sidecars = [
+          np.join(os.homedir(), '.agent-bridge', 'config.json'),          // standard location
+          np.join(os.homedir(), 'Documents', 'DeepBrainChat', 'settings.json'), // legacy fallback
+        ];
+        for(const sidecar of sidecars){
+          try{
+            // Strip UTF-8 BOM if present before parsing
+            let raw = fs.readFileSync(sidecar,'utf-8');
+            if(raw.charCodeAt(0)===0xFEFF) raw=raw.slice(1);
+            const sidecarData = JSON.parse(raw);
+            if(sidecarData.slack_bot_token){ slackToken = sidecarData.slack_bot_token; }
+            if(!slackChannel && sidecarData.slack_channel){ slackChannel = sidecarData.slack_channel; }
+            // Also load authToken from config if not set in VS Code settings
+            if(!cfgAuth && sidecarData.auth_token) {
+              // stored for reference but can't retroactively auth here — handled at route entry
+            }
+            if(slackToken) break;
+          }catch{}
+        }
       }
       if(!slackToken||slackToken.startsWith('xoxb-PASTE')){
         send(res,500,{ok:false,error:'Slack token not configured. Set agentBridge.slackBotToken in VS Code settings, or create ~/Documents/agent-bridge-config/settings.json with {"slack_bot_token":"xoxb-...","slack_channel":"C0..."}'}); return;
@@ -616,6 +640,306 @@ async function route(req:http.IncomingMessage, res:http.ServerResponse){
   //  GET /log 
   if(meth==='GET'&&path==='/log'){
     send(res,200,{ok:true,entries:logEntries.slice(-100)});
+    return;
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  //  ADVANCED AGENT AUTOMATION ENDPOINTS
+  // ─────────────────────────────────────────────────────────────────
+
+  //  GET /git-status  — branch, last commit, staged/unstaged counts
+  if(meth==='GET'&&path==='/git-status'){
+    const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath??process.cwd();
+    try{
+      const [branch,log,status] = await Promise.all([
+        runShellAndCapture('git branch --show-current',cwd,8000),
+        runShellAndCapture('git log -1 --format="%H|%s|%ar|%an"',cwd,8000),
+        runShellAndCapture('git status --porcelain',cwd,8000),
+      ]);
+      const lines = status.stdout.trim().split('\n').filter(Boolean);
+      const uncommitted = lines.length;
+      const staged   = lines.filter(l=>!'? '.includes(l[0])).length;
+      const [hash,subject,when,author] = (log.stdout.trim().replace(/"/g,'')).split('|');
+      send(res,200,{ok:true,
+        branch: branch.stdout.trim(),
+        last_commit:{hash:hash?.slice(0,8),subject,when,author},
+        uncommitted_files: uncommitted,
+        staged_files: staged,
+        status_lines: lines.slice(0,50),
+      });
+    }catch(e){send(res,500,{ok:false,error:String(e)});}
+    return;
+  }
+
+  //  POST /git-commit  — stage all + commit  { message, add_all? }
+  if(meth==='POST'&&path==='/git-commit'){
+    const msg = String(b.message??b.msg??'').trim();
+    if(!msg){send(res,400,{ok:false,error:'message required'});return;}
+    const cwd = String(b.cwd??vscode.workspace.workspaceFolders?.[0]?.uri.fsPath??process.cwd());
+    const addAll = b.add_all!==false;
+    try{
+      if(addAll) await runShellAndCapture('git add -A',cwd,10000);
+      const r = await runShellAndCapture(`git commit -m "${msg.replace(/"/g,"'")}"`,cwd,15000);
+      if(r.code!==0 && !r.stdout.includes('nothing to commit'))
+        throw new Error(r.stderr||r.stdout);
+      send(res,200,{ok:true,stdout:r.stdout.trim(),code:r.code});
+    }catch(e){send(res,500,{ok:false,error:String(e)});}
+    return;
+  }
+
+  //  POST /git-push  — push to remote  { remote?, branch? }
+  if(meth==='POST'&&path==='/git-push'){
+    const cwd = String(b.cwd??vscode.workspace.workspaceFolders?.[0]?.uri.fsPath??process.cwd());
+    const remote = String(b.remote??'origin');
+    const branch = String(b.branch??'');
+    try{
+      const cmd = branch ? `git push ${remote} ${branch}` : `git push ${remote}`;
+      const r = await runShellAndCapture(cmd,cwd,30000);
+      send(res,200,{ok:r.code===0,stdout:r.stdout.trim(),stderr:r.stderr.trim(),code:r.code});
+    }catch(e){send(res,500,{ok:false,error:String(e)});}
+    return;
+  }
+
+  //  GET /git-diff  — unstaged diff (or staged with ?staged=1)
+  if(meth==='GET'&&path==='/git-diff'){
+    const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath??process.cwd();
+    const staged = qp['staged']==='1'||qp['staged']==='true';
+    try{
+      const r = await runShellAndCapture(staged?'git diff --cached':'git diff',cwd,10000);
+      send(res,200,{ok:true,diff:r.stdout.slice(0,50000),truncated:r.stdout.length>50000});
+    }catch(e){send(res,500,{ok:false,error:String(e)});}
+    return;
+  }
+
+  //  POST /search-workspace  — grep/regex search across workspace files
+  //  Body: { pattern, path_glob?, max_results?, case_sensitive? }
+  if(meth==='POST'&&path==='/search-workspace'){
+    const pattern   = String(b.pattern??'').trim();
+    if(!pattern){send(res,400,{ok:false,error:'pattern required'});return;}
+    const root      = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath??process.cwd();
+    const glob      = String(b.path_glob??'**/*');
+    const maxRes    = Math.min(Number(b.max_results??200),1000);
+    const cs        = b.case_sensitive===true;
+    try{
+      const files = await vscode.workspace.findFiles(glob,'**/{node_modules,.git,__pycache__}/**',5000);
+      const re = new RegExp(pattern, cs?'g':'gi');
+      const results:{file:string;line:number;text:string}[]=[];
+      for(const f of files){
+        if(results.length>=maxRes) break;
+        try{
+          const txt = fs.readFileSync(f.fsPath,'utf-8');
+          txt.split('\n').forEach((ln,i)=>{ if(re.test(ln)&&results.length<maxRes) results.push({file:f.fsPath,line:i+1,text:ln.slice(0,200)}); re.lastIndex=0; });
+        }catch{}
+      }
+      send(res,200,{ok:true,matches:results,total:results.length,truncated:results.length>=maxRes});
+    }catch(e){send(res,500,{ok:false,error:String(e)});}
+    return;
+  }
+
+  //  GET /clipboard  — read current clipboard text
+  if(meth==='GET'&&path==='/clipboard'){
+    try{
+      const text = await vscode.env.clipboard.readText();
+      send(res,200,{ok:true,text,length:text.length});
+    }catch(e){send(res,500,{ok:false,error:String(e)});}
+    return;
+  }
+
+  //  POST /clipboard  — write text to clipboard  { text }
+  if(meth==='POST'&&path==='/clipboard'){
+    const text = String(b.text??b.content??'');
+    try{
+      await vscode.env.clipboard.writeText(text);
+      send(res,200,{ok:true,length:text.length});
+    }catch(e){send(res,500,{ok:false,error:String(e)});}
+    return;
+  }
+
+  //  GET /processes  — list running processes (name, pid, cpu, mem)
+  if(meth==='GET'&&path==='/processes'){
+    const filter = String(qp['filter']??'').toLowerCase();
+    try{
+      const r = await runShellAndCapture(
+        'powershell -NoProfile -Command "Get-Process | Select-Object Name,Id,CPU,WorkingSet | ConvertTo-Json -Compress"',
+        process.cwd(), 10000);
+      let procs = JSON.parse(r.stdout.trim()) as {Name:string;Id:number;CPU:number;WorkingSet:number}[];
+      if(filter) procs = procs.filter(p=>p.Name.toLowerCase().includes(filter));
+      send(res,200,{ok:true,processes:procs.slice(0,200)});
+    }catch(e){send(res,500,{ok:false,error:String(e)});}
+    return;
+  }
+
+  //  POST /kill-process  — kill by name or PID  { name?, pid?, force? }
+  if(meth==='POST'&&path==='/kill-process'){
+    const name = String(b.name??'').trim();
+    const pid  = Number(b.pid??0);
+    const force= b.force!==false;
+    if(!name&&!pid){send(res,400,{ok:false,error:'name or pid required'});return;}
+    try{
+      const cmd = pid
+        ? `Stop-Process -Id ${pid} ${force?'-Force':''} -ErrorAction SilentlyContinue`
+        : `Stop-Process -Name "${name}" ${force?'-Force':''} -ErrorAction SilentlyContinue`;
+      const r = await runShellAndCapture(`powershell -NoProfile -Command "${cmd}"`,process.cwd(),10000);
+      send(res,200,{ok:true,stdout:r.stdout.trim(),stderr:r.stderr.trim()});
+    }catch(e){send(res,500,{ok:false,error:String(e)});}
+    return;
+  }
+
+  //  POST /http-proxy  — make outbound HTTP/HTTPS request on behalf of agent
+  //  Body: { url, method?, headers?, body? (string), timeout_ms? }
+  if(meth==='POST'&&path==='/http-proxy'){
+    const targetUrl = String(b.url??'').trim();
+    if(!targetUrl){send(res,400,{ok:false,error:'url required'});return;}
+    const targetMethod = String(b.method??'GET').toUpperCase();
+    const targetHeaders = (b.headers as Record<string,string>)??{};
+    const targetBody   = b.body ? String(b.body) : undefined;
+    const tMs = Math.min(Number(b.timeout_ms??30000),120000);
+    try{
+      const u = new URL(targetUrl);
+      const isHttps = u.protocol==='https:';
+      const opts = {
+        hostname: u.hostname,
+        port: u.port||(isHttps?443:80),
+        path: u.pathname+(u.search??''),
+        method: targetMethod,
+        headers: {'User-Agent':'AgentBridge/3.4',...targetHeaders,
+          ...(targetBody?{'Content-Length':Buffer.byteLength(targetBody)}:{})},
+      };
+      const {status,body:rBody,hdrs} = await new Promise<{status:number;body:string;hdrs:Record<string,string>}>((resolve,reject)=>{
+        const cb = (r2:http.IncomingMessage)=>{
+          let d=''; r2.on('data',(c:Buffer)=>d+=c);
+          r2.on('end',()=>resolve({status:r2.statusCode??0,body:d.slice(0,1_000_000),hdrs:r2.headers as Record<string,string>}));
+        };
+        const req2 = isHttps ? https.request(opts,cb) : http.request(opts,cb);
+        req2.setTimeout(tMs,()=>{req2.destroy();reject(new Error('timeout'));});
+        req2.on('error',reject);
+        if(targetBody) req2.write(targetBody);
+        req2.end();
+      });
+      send(res,200,{ok:true,status,body:rBody,headers:hdrs});
+    }catch(e){send(res,500,{ok:false,error:String(e)});}
+    return;
+  }
+
+  //  POST /format-file  — run VS Code formatter on a file  { path? }
+  if(meth==='POST'&&path==='/format-file'){
+    const fp = String(b.path??'').trim();
+    try{
+      const uri = fp ? vscode.Uri.file(fp) : vscode.window.activeTextEditor?.document.uri;
+      if(!uri){send(res,400,{ok:false,error:'path required or open a file'});return;}
+      const doc = await vscode.workspace.openTextDocument(uri);
+      await vscode.window.showTextDocument(doc);
+      await vscode.commands.executeCommand('editor.action.formatDocument');
+      await doc.save();
+      send(res,200,{ok:true,path:uri.fsPath});
+    }catch(e){send(res,500,{ok:false,error:String(e)});}
+    return;
+  }
+
+  //  GET /symbols  — code outline (functions, classes, vars) for a file
+  if(meth==='GET'&&path==='/symbols'){
+    const fp = String(qp['path']??'').trim();
+    try{
+      const uri = fp ? vscode.Uri.file(fp) : vscode.window.activeTextEditor?.document.uri;
+      if(!uri){send(res,400,{ok:false,error:'path required or open a file'});return;}
+      const syms = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+        'vscode.executeDocumentSymbolProvider', uri);
+      const flatten = (s:vscode.DocumentSymbol[],depth=0):object[]=>
+        s.flatMap(x=>[{name:x.name,kind:vscode.SymbolKind[x.kind],line:x.range.start.line+1,depth},...flatten(x.children??[],depth+1)]);
+      send(res,200,{ok:true,symbols:flatten(syms??[]),file:uri.fsPath});
+    }catch(e){send(res,500,{ok:false,error:String(e)});}
+    return;
+  }
+
+  //  POST /notify  — Windows toast notification  { message, title? }
+  if(meth==='POST'&&path==='/notify'){
+    const msg   = String(b.message??b.text??'').trim();
+    const title = String(b.title??'Agent Bridge');
+    if(!msg){send(res,400,{ok:false,error:'message required'});return;}
+    const ps = `[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType=WindowsRuntime] | Out-Null;`+
+      `$t = [Windows.UI.Notifications.ToastTemplateType]::ToastText02;`+
+      `$x = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent($t);`+
+      `$n = $x.GetElementsByTagName('text');`+
+      `$n.Item(0).AppendChild($x.CreateTextNode('${title.replace(/'/g,'`\'')}')) | Out-Null;`+
+      `$n.Item(1).AppendChild($x.CreateTextNode('${msg.replace(/'/g,'`\'')}')) | Out-Null;`+
+      `[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('AgentBridge').Show([Windows.UI.Notifications.ToastNotification]::new($x))`;
+    exec(`powershell -NoProfile -Command "${ps.replace(/"/g,'\\"')}"`,()=>{});
+    send(res,200,{ok:true,message:msg,title});
+    return;
+  }
+
+  //  POST /schedule  — run a terminal command after a delay  { command, delay_ms, cwd? }
+  if(meth==='POST'&&path==='/schedule'){
+    const cmd     = String(b.command??'').trim();
+    const delayMs = Math.min(Number(b.delay_ms??1000),3_600_000);
+    if(!cmd){send(res,400,{ok:false,error:'command required'});return;}
+    const cwd = String(b.cwd??vscode.workspace.workspaceFolders?.[0]?.uri.fsPath??process.cwd());
+    const id  = `sched_${Date.now()}`;
+    setTimeout(()=>{
+      if(b.capture_output){
+        runShellAndCapture(cmd,cwd,120000).catch(()=>{});
+      } else {
+        const t=vscode.window.createTerminal({name:`Scheduled-${id}`,cwd:vscode.Uri.file(cwd)});
+        t.sendText(cmd); t.show();
+      }
+    }, delayMs);
+    send(res,200,{ok:true,id,command:cmd,runs_in_ms:delayMs});
+    return;
+  }
+
+  //  POST /rename-symbol  — rename a symbol across workspace  { old_name, new_name, path? }
+  if(meth==='POST'&&path==='/rename-symbol'){
+    const oldName = String(b.old_name??'').trim();
+    const newName = String(b.new_name??'').trim();
+    if(!oldName||!newName){send(res,400,{ok:false,error:'old_name and new_name required'});return;}
+    try{
+      const fp2 = String(b.path??'').trim();
+      const uri = fp2 ? vscode.Uri.file(fp2) : vscode.window.activeTextEditor?.document.uri;
+      if(!uri){send(res,400,{ok:false,error:'path required or open a file'});return;}
+      const doc  = await vscode.workspace.openTextDocument(uri);
+      const text = doc.getText();
+      const idx  = text.indexOf(oldName);
+      if(idx<0){send(res,400,{ok:false,error:`'${oldName}' not found in file`});return;}
+      await vscode.window.showTextDocument(doc);
+      const pos  = doc.positionAt(idx);
+      await vscode.commands.executeCommand('editor.action.rename',uri,pos);
+      send(res,200,{ok:true,note:`Rename dialog opened: ${oldName} → ${newName}. Type the new name and press Enter.`});
+    }catch(e){send(res,500,{ok:false,error:String(e)});}
+    return;
+  }
+
+  //  GET /config  — read ~/.agent-bridge/config.json
+  if(meth==='GET'&&path==='/config'){
+    try{
+      const cfgPath = np.join(os.homedir(),'.agent-bridge','config.json');
+      const data = fs.existsSync(cfgPath) ? JSON.parse(fs.readFileSync(cfgPath,'utf-8')) : {};
+      // Redact sensitive keys before returning
+      const safe = {...data};
+      for(const k of ['slack_bot_token','auth_token','deepseek_api_key','openai_api_key']){
+        if(safe[k]) safe[k]='***REDACTED***';
+      }
+      send(res,200,{ok:true,config:safe,path:cfgPath});
+    }catch(e){send(res,500,{ok:false,error:String(e)});}
+    return;
+  }
+
+  //  POST /config  — update a key in ~/.agent-bridge/config.json  { key, value }
+  if(meth==='POST'&&path==='/config'){
+    const key   = String(b.key??'').trim();
+    const value = b.value;
+    if(!key){send(res,400,{ok:false,error:'key required'});return;}
+    // Block writing credentials via API for security
+    const blocked=['slack_bot_token','auth_token','deepseek_api_key','openai_api_key'];
+    if(blocked.includes(key)){send(res,403,{ok:false,error:`'${key}' is write-protected — edit ~/.agent-bridge/config.json manually`});return;}
+    try{
+      const cfgPath = np.join(os.homedir(),'.agent-bridge','config.json');
+      const dir = np.dirname(cfgPath);
+      if(!fs.existsSync(dir)) fs.mkdirSync(dir,{recursive:true});
+      const data = fs.existsSync(cfgPath) ? JSON.parse(fs.readFileSync(cfgPath,'utf-8')) : {};
+      data[key] = value;
+      fs.writeFileSync(cfgPath,JSON.stringify(data,null,2),'utf-8');
+      send(res,200,{ok:true,key,note:'config updated'});
+    }catch(e){send(res,500,{ok:false,error:String(e)});}
     return;
   }
 
