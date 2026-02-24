@@ -1,0 +1,196 @@
+# VS Code Agent Bridge
+
+A local HTTP bridge that gives any AI agent **full programmatic control** over VS Code, GitHub Copilot, the local filesystem, terminal, and Slack — all running entirely on your machine.
+
+---
+
+## What it does
+
+Starts a lightweight HTTP server on `127.0.0.1:3131` the moment VS Code opens. Your AI agent (DeepSeek, a Python script, n8n, Make, etc.) can then:
+
+- **Prompt Copilot** directly and get the response as JSON
+- **Write, read, edit files** on your disk
+- **Run terminal commands** and capture their output
+- **Open files** in the VS Code editor
+- **Auto-dismiss** Allow / Continue / Keep dialogs automatically
+- **Post to Slack** when tasks complete
+- **Type into any desktop app** via WScript.Shell (Windows)
+
+Everything stays 100% local. Only the LLM inference call leaves your machine (to Copilot's cloud endpoint).
+
+---
+
+## Quick Start
+
+### 1. Install
+
+**Option A — From source (recommended while in beta):**
+```bash
+git clone https://github.com/YOUR_USERNAME/vscode-agent-bridge.git
+cd vscode-agent-bridge
+npm install
+npm run compile
+# Then in VS Code: Extensions > Install from VSIX... or press F5 to run in debug
+```
+
+**Option B — From VSIX:**
+Download the latest `.vsix` from [Releases](https://github.com/YOUR_USERNAME/vscode-agent-bridge/releases) and install via:
+```
+code --install-extension vscode-agent-bridge-1.0.0.vsix
+```
+
+### 2. Verify it's running
+
+After VS Code loads, look for `$(broadcast) Bridge :3131` in the status bar.
+
+```powershell
+# Quick health check
+Invoke-RestMethod http://127.0.0.1:3131/health
+```
+
+You should see `ok: true`, the port, and a list of available Copilot models.
+
+### 3. Configure (optional)
+Open VS Code Settings (`Ctrl+,`) and search for **Agent Bridge**:
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `agentBridge.port` | `3131` | Bridge port |
+| `agentBridge.slackBotToken` | *(empty)* | `xoxb-...` token for `/slack-post` |
+| `agentBridge.slackChannel` | *(empty)* | Default Slack channel |
+| `agentBridge.autoDismissOnStartup` | `false` | Auto-start dialog poking loop |
+| `agentBridge.maxPromptTimeout` | `300` | Seconds before LLM calls time out |
+
+---
+
+## API Reference
+
+All endpoints are on `http://127.0.0.1:3131`. All POST bodies are JSON.
+
+### Core
+
+| Method | Path | Body / Query | Returns |
+|---|---|---|---|
+| GET | `/health` | — | `{ok, port, version, models[], workspace}` |
+| GET | `/workspace-info` | — | `{ok, folders[], active_file}` |
+
+### Copilot / LLM
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| POST | `/prompt` | `{prompt, model?, system?, timeout?, context_files?}` | `{ok, text, model_used, elapsed_ms}` |
+| POST | `/copilot-task` | `{prompt, auto_accept?, watch_secs?, timeout?, context_files?}` | `{ok, llm_response, files_changed[], diff_summary[]}` |
+
+**`/copilot-task`** is the power endpoint — it prompts Copilot, **automatically clicks any Allow/Continue dialogs** while it runs, waits for file changes, then returns a full diff summary.
+
+### Filesystem
+
+| Method | Path | Body / Query | Returns |
+|---|---|---|---|
+| GET | `/read-file?path=` | — | `{ok, content, lines}` |
+| GET | `/list-dir?path=` | — | `{ok, entries[]}` |
+| POST | `/write-file` | `{path, content, create_dirs?}` | `{ok, bytes}` |
+| POST | `/apply-edit` | `{path, old_text, new_text}` | `{ok}` |
+
+### Terminal
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| POST | `/run-terminal` | `{command, cwd?, capture_output?}` | `{ok, terminal_name}` or `{ok, stdout, stderr, exit_code}` |
+
+Set `capture_output: true` to get stdout/stderr back without a visible terminal window.
+
+### Editor
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| POST | `/open-file` | `{path, line?}` | `{ok, lines}` |
+| GET | `/diagnostics?path=` | — | `{ok, errors[], warnings[]}` |
+| POST | `/exec-command` | `{command, args?}` | `{ok, result}` |
+
+### Dialog Auto-Dismiss
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| POST | `/keep-going` | — | `{ok, commands_run[]}` |
+| POST | `/auto-dismiss` | `{active: true\|false, interval_ms?}` | `{ok, active}` |
+| GET | `/auto-dismiss` | — | `{ok, active}` |
+
+### Change Tracking
+
+| Method | Path | Body / Query | Returns |
+|---|---|---|---|
+| POST | `/watch-start` | `{label?}` | `{ok, watch_id}` |
+| GET | `/watch-result?id=` | — | `{ok, files[]}` |
+| GET | `/changes-since?ts=` | — | `{ok, files[]}` |
+| GET | `/pending-approvals` | — | `{ok, count, files[]}` |
+| POST | `/accept-edits` | — | `{ok}` |
+| POST | `/reject-edits` | — | `{ok}` |
+
+### Integrations
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| POST | `/slack-post` | `{text, channel?}` | `{ok, channel}` |
+| POST | `/desktop-type` | `{app, text, window_title?, delay_ms?}` | `{ok}` |
+| POST | `/show-message` | `{message, level?}` | `{ok}` |
+| GET | `/log` | — | `{ok, entries[]}` |
+
+---
+
+## Python Agent Template
+
+See [`agent_template.py`](agent_template.py) for a ready-to-use Python class that wraps the bridge. Basic usage:
+
+```python
+from agent_template import AgentBridge
+
+bridge = AgentBridge()  # auto-detects port
+
+# Ask Copilot something
+answer = bridge.prompt("What does this function do?", context_files=["src/main.py"])
+print(answer)
+
+# Full task: write + run a script
+result = bridge.copilot_task(
+    "Write a Python script that prints system info. Save to /tmp/sysinfo.py",
+    auto_accept=True
+)
+bridge.run_terminal("python /tmp/sysinfo.py", capture_output=True)
+
+# Post result to Slack
+bridge.slack_post(f"Done! Changed files: {result['files_changed']}")
+```
+
+---
+
+## Slack Setup
+
+1. Go to [api.slack.com/apps](https://api.slack.com/apps) → Create App → From Scratch
+2. Add **Bot Token Scopes**: `chat:write`, `chat:write.public`
+3. Install to workspace → copy the `xoxb-...` Bot Token
+4. Set in VS Code settings: `agentBridge.slackBotToken`
+5. Set your channel: `agentBridge.slackChannel` (use the channel ID from Slack, e.g. `C0XXXXXXX`)
+
+---
+
+## Security Notes
+
+- The bridge **only listens on 127.0.0.1** — it is not reachable from the network
+- Never commit your Slack token — use VS Code settings (stored in OS keychain on Windows)
+- The `/run-terminal` endpoint can run any command — only give your own agents access to the bridge port
+- You can restrict which agents can reach it by firewall-blocking port 3131 to specific PIDs
+
+---
+
+## Supported Platforms
+
+- **Windows** ✅ (primary — `/desktop-type` uses WScript.Shell)
+- **macOS** ✅ (`/desktop-type` will use AppleScript in a future release)
+- **Linux** ✅ (without `/desktop-type`)
+
+---
+
+## License
+
+MIT — free to use, modify, and redistribute.

@@ -1,0 +1,48 @@
+﻿{
+  "name": "vscode-agent-bridge",
+  "displayName": "Agent Bridge",
+  "description": "Local HTTP bridge giving AI agents full access to VS Code, GitHub Copilot, filesystem and terminal  all from localhost.",
+  "version": "3.3.0",
+  "publisher": "YOUR_PUBLISHER_ID",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/YOUR_USERNAME/vscode-agent-bridge.git" },
+  "engines": { "vscode": "^1.90.0" },
+  "categories": ["Other", "AI"],
+  "keywords": ["ai","agent","copilot","bridge","deepseek","automation","llm","http"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "agentBridge.panel",   "title": "Agent Bridge: Open Log Panel" },
+      { "command": "agentBridge.restart", "title": "Agent Bridge: Restart Server" }
+    ],
+    "configuration": {
+      "title": "Agent Bridge",
+      "properties": {
+        "agentBridge.authToken": {
+          "type": "string", "default": "",
+          "description": "Optional Bearer token. If set, all requests must include 'Authorization: Bearer <token>'. Strongly recommended on shared machines."
+        },
+        "agentBridge.slackBotToken": {
+          "type": "string", "default": "",
+          "description": "Slack bot token (xoxb-...) for POST /slack-post. Leave blank to read from ~/Documents/agent-bridge-config/settings.json."
+        },
+        "agentBridge.slackChannel": {
+          "type": "string", "default": "",
+          "description": "Default Slack channel ID for POST /slack-post."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch":   "tsc -watch -p ./",
+    "package": "npx @vscode/vsce package"
+  },
+  "devDependencies": {
+    "@types/node":   "^20.0.0",
+    "@types/vscode": "^1.90.0",
+    "typescript":    "^5.4.0",
+    "@vscode/vsce":  "^3.0.0"
+  }
+}

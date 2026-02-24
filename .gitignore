@@ -1,0 +1,13 @@
+out/
+node_modules/
+*.vsix
+.vscode-test/
+*.log
+*.js.map
+
+# Secrets — never commit these
+settings.json
+.env
+secrets.*
+*token*
+*apikey*
