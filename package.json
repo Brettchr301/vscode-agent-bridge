@@ -2,7 +2,7 @@
   "name": "vscode-agent-bridge",
   "displayName": "Agent Bridge",
   "description": "Local HTTP bridge giving AI agents full access to VS Code, GitHub Copilot, filesystem and terminal  all from localhost.",
-  "version": "3.4.0",
+  "version": "3.5.0",
   "publisher": "brettco",
   "license": "MIT",
   "repository": {
@@ -39,6 +39,14 @@
       {
         "command": "agentBridge.showLog",
         "title": "Agent Bridge: Open Request Log"
+      },
+      {
+        "command": "agentBridge.copyToken",
+        "title": "Agent Bridge: Copy Auth Token"
+      },
+      {
+        "command": "agentBridge.showToken",
+        "title": "Agent Bridge: Show Auth Token"
       }
     ],
     "configuration": {
@@ -65,7 +73,9 @@
   "scripts": {
     "compile": "tsc -p ./",
     "compile:mcp": "tsc -p ./mcp/tsconfig.json",
+    "compile:all": "tsc -p ./ && tsc -p ./mcp/tsconfig.json",
     "watch": "tsc -watch -p ./",
+    "start:sse": "node out/mcp/sse-server.js",
     "package": "npx @vscode/vsce package",
     "test": "jest --passWithNoTests"
   },

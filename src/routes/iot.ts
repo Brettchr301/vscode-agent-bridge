@@ -32,6 +32,7 @@ import { exec }   from 'child_process';
 import { RouteContext, RouteModule, IoTDevice, IoTDeviceType } from '../types';
 import { send } from '../helpers';
 import { getOccupiedRooms } from './presence';  // presence integration
+import { encryptSecret, decryptSecret } from '../crypto';
 
 // ─── Device registry persistence ─────────────────────────────────────────────
 
@@ -50,7 +51,9 @@ function saveDevices(devices: IoTDevice[]) {
   try {
     const dir = np.dirname(REGISTRY_PATH);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(REGISTRY_PATH, JSON.stringify(devices, null, 2), 'utf-8');
+    // Encrypt credentials before writing to disk
+    const secured = devices.map(encryptDeviceCreds);
+    fs.writeFileSync(REGISTRY_PATH, JSON.stringify(secured, null, 2), 'utf-8');
   } catch {}
 }
 
@@ -68,6 +71,37 @@ function uniqueId(devices: IoTDevice[], name: string) {
 
 function redact(d: IoTDevice): IoTDevice & { token: string; password: string } {
   return { ...d, token: d.token ? '***' : '', password: d.password ? '***' : '' };
+}
+
+// ─── Credential helpers (encrypt at rest) ─────────────────────────────────────
+
+function credLabel(deviceId: string, field: 'token' | 'password') {
+  return `iot-${deviceId}-${field}`;
+}
+
+/** Return plaintext token for a device (decrypts if stored encrypted). */
+function getDeviceToken(dev: IoTDevice): string {
+  if (!dev.token) return '';
+  try { return decryptSecret(dev.token, credLabel(dev.id, 'token')); } catch { return dev.token; }
+}
+
+/** Return plaintext password for a device. */
+function getDevicePassword(dev: IoTDevice): string {
+  if (!dev.password) return '';
+  try { return decryptSecret(dev.password, credLabel(dev.id, 'password')); } catch { return dev.password ?? ''; }
+}
+
+/** Encrypt creds before persisting. Returns mutated copy. */
+function encryptDeviceCreds(dev: IoTDevice): IoTDevice {
+  const out = { ...dev };
+  // Only encrypt if not already encrypted (prefix check)
+  if (out.token && !out.token.startsWith('dpapi:') && !out.token.startsWith('keychain:') && !out.token.startsWith('xor:')) {
+    try { out.token = encryptSecret(out.token, credLabel(out.id, 'token')); } catch {}
+  }
+  if (out.password && !out.password.startsWith('dpapi:') && !out.password.startsWith('keychain:') && !out.password.startsWith('xor:')) {
+    try { out.password = encryptSecret(out.password, credLabel(out.id, 'password')); } catch {}
+  }
+  return out;
 }
 
 // ─── Generic HTTP helper ──────────────────────────────────────────────────────
@@ -114,7 +148,7 @@ function httpReq(url: string, opts: ReqOpts = {}): Promise<{ status: number; bod
 async function haGet(dev: IoTDevice, path: string) {
   const base = `http://${dev.host}:${dev.port ?? 8123}`;
   const r = await httpReq(`${base}${path}`, {
-    headers: { 'Authorization': `Bearer ${dev.token ?? ''}` },
+    headers: { 'Authorization': `Bearer ${getDeviceToken(dev)}` },
   });
   return JSON.parse(r.body);
 }
@@ -123,7 +157,7 @@ async function haPost(dev: IoTDevice, path: string, data: unknown) {
   const base = `http://${dev.host}:${dev.port ?? 8123}`;
   const r = await httpReq(`${base}${path}`, {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${dev.token ?? ''}` },
+    headers: { 'Authorization': `Bearer ${getDeviceToken(dev)}` },
     body: JSON.stringify(data),
   });
   return JSON.parse(r.body);
@@ -145,7 +179,7 @@ async function haControl(dev: IoTDevice, action: string, params: Record<string, 
 
 /** ── Philips Hue ── */
 async function hueBase(dev: IoTDevice) {
-  return `http://${dev.host}/api/${dev.meta?.username ?? dev.token ?? ''}`;
+  return `http://${dev.host}/api/${dev.meta?.username ?? getDeviceToken(dev)}`;
 }
 
 async function hueStatus(dev: IoTDevice): Promise<unknown> {

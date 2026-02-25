@@ -3,24 +3,28 @@ import * as vscode from 'vscode';
 import * as np from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
-import { send, qs, body, stripBom } from './helpers';
+import * as crypto from 'crypto';
+import { send, qs, body } from './helpers';
 import { chlog, PORT_START, setActivePort, activePort } from './state';
-import { bridgeRoutes }    from './routes/bridge';
-import { filesystemRoutes } from './routes/filesystem';
-import { gitRoutes }        from './routes/git';
-import { terminalRoutes }   from './routes/terminal';
-import { editorRoutes }     from './routes/editor';
-import { workspaceRoutes }  from './routes/workspace';
-import { systemRoutes }     from './routes/system';
-import { slackRoutes }      from './routes/slack';
-import { copilotRoutes }    from './routes/copilot-routes';
-import { iotRoutes }        from './routes/iot';
-import { presenceRoutes }   from './routes/presence';
+import { bridgeRoutes }      from './routes/bridge';
+import { filesystemRoutes }  from './routes/filesystem';
+import { gitRoutes }         from './routes/git';
+import { terminalRoutes }    from './routes/terminal';
+import { editorRoutes }      from './routes/editor';
+import { workspaceRoutes }   from './routes/workspace';
+import { systemRoutes }      from './routes/system';
+import { slackRoutes }       from './routes/slack';
+import { copilotRoutes }     from './routes/copilot-routes';
+import { iotRoutes }         from './routes/iot';
+import { presenceRoutes }    from './routes/presence';
+import { automationsRoutes } from './routes/automations';
+import { deepseekRoutes }    from './routes/deepseek';
 
 /** All route modules in priority order. */
 const ROUTE_MODULES = [
   bridgeRoutes,
   copilotRoutes,
+  deepseekRoutes,
   filesystemRoutes,
   gitRoutes,
   terminalRoutes,
@@ -30,7 +34,49 @@ const ROUTE_MODULES = [
   slackRoutes,
   iotRoutes,
   presenceRoutes,
+  automationsRoutes,
 ];
+
+// ─── Auth token (auto-generated on first run, stored in config.json) ─────────
+
+const CONFIG_DIR  = np.join(os.homedir(), '.agent-bridge');
+const CONFIG_FILE = np.join(CONFIG_DIR, 'config.json');
+
+let _cachedToken: string | null = null;
+
+export function getOrCreateAuthToken(): string {
+  if (_cachedToken) return _cachedToken;
+
+  // 1. VS Code setting (highest priority — lets users override)
+  const vsCfg = vscode.workspace.getConfiguration('agentBridge').get<string>('authToken', '').trim();
+  if (vsCfg) { _cachedToken = vsCfg; return vsCfg; }
+
+  // 2. Config file
+  try {
+    const raw  = fs.readFileSync(CONFIG_FILE, 'utf-8').replace(/^\uFEFF/, '');
+    const json = JSON.parse(raw);
+    if (json.auth_token) { _cachedToken = json.auth_token; return json.auth_token; }
+  } catch { /* first run */ }
+
+  // 3. Auto-generate
+  const token = crypto.randomUUID();
+  try {
+    fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    let existing: Record<string, unknown> = {};
+    try { existing = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8')); } catch {}
+    existing.auth_token = token;
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(existing, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('[agent-bridge] could not write config.json:', e);
+  }
+  _cachedToken = token;
+  return token;
+}
+
+/** Expose so extension.ts can show the token in a notification on first run. */
+export function getToken() { return _cachedToken ?? getOrCreateAuthToken(); }
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function route(req: http.IncomingMessage, res: http.ServerResponse) {
   const raw     = req.url ?? '/';
@@ -40,22 +86,17 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse) {
 
   if (meth === 'OPTIONS') { send(res, 200, {}); return; }
 
-  // Optional auth token check
-  const authToken = (() => {
-    let t = vscode.workspace.getConfiguration('agentBridge').get<string>('authToken', '');
-    if (!t) {
-      try {
-        const raw2 = stripBom(fs.readFileSync(np.join(os.homedir(), '.agent-bridge', 'config.json'), 'utf-8'));
-        t = JSON.parse(raw2).auth_token ?? '';
-      } catch {}
-    }
-    return t;
-  })();
-
-  if (authToken && pathStr !== '/health') {
+  // ── Auth enforcement (default ON — auto-generates token on first start) ────
+  const authToken = getOrCreateAuthToken();
+  const PUBLIC_PATHS = new Set(['/health', '/mcp/health']);
+  if (!PUBLIC_PATHS.has(pathStr)) {
     const supplied = (req.headers['authorization'] ?? '').replace(/^Bearer\s+/i, '');
     if (supplied !== authToken) {
-      send(res, 401, { ok: false, error: 'Unauthorized: missing or invalid Authorization: Bearer <token>' });
+      send(res, 401, {
+        ok:    false,
+        error: 'Unauthorized',
+        hint:  'Include header: Authorization: Bearer <token>  (see ~/.agent-bridge/config.json)',
+      });
       return;
     }
   }

@@ -11,6 +11,7 @@
     "declaration": false
   },
   "include": [
-    "server.ts"
+    "server.ts",
+    "sse-server.ts"
   ]
 }
