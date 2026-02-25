@@ -487,6 +487,227 @@ const TOOLS: ToolDef[] = [
     description: 'Retrieve the last 100 HTTP request log entries from the bridge.',
     inputSchema: { type: 'object', properties: {} },
   },
+
+  // ── IoT Device Registry ──
+  {
+    name: 'iot_list_devices',
+    description: 'List all registered IoT devices (Hue, Shelly, Tasmota, WLED, ESPHome, Home Assistant, Roomba, etc.).',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'iot_add_device',
+    description: 'Register a new IoT device. type must be one of: homeassistant, hue, roomba, shelly, tasmota, esphome, wled, tuya, rest, mqtt.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name:     { type: 'string',  description: 'Human-readable label, e.g. "Living Room Hue".' },
+        type:     { type: 'string',  description: 'Device type: homeassistant | hue | roomba | shelly | tasmota | esphome | wled | tuya | rest | mqtt.' },
+        host:     { type: 'string',  description: 'IP address or hostname of the device/bridge.' },
+        port:     { type: 'number',  description: 'Port (optional, uses sensible defaults per type).' },
+        token:    { type: 'string',  description: 'API key or Bearer token (e.g. HA long-lived access token).' },
+        username: { type: 'string',  description: 'Username for basic auth.' },
+        password: { type: 'string',  description: 'Password for basic auth.' },
+        meta:     { type: 'string',  description: 'JSON object with type-specific extras (e.g. {"entity_id":"vacuum.roomba","rooms":{"kitchen":"1","bedroom":"2"}}).' },
+      },
+      required: ['name', 'type', 'host'],
+    },
+  },
+  {
+    name: 'iot_remove_device',
+    description: 'Remove a registered IoT device by its ID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Device ID from iot_list_devices.' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'iot_status',
+    description: 'Get the live state of an IoT device (lights on/off, vacuum status, relay state, etc.).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Device ID.' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'iot_status_all',
+    description: 'Poll the live state of ALL registered IoT devices at once.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'iot_control',
+    description: 'Send a control action to an IoT device. Common actions: turn_on, turn_off, toggle, bri, color, open, close, vacuum.start, vacuum.stop, vacuum.return_to_base.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id:     { type: 'string', description: 'Device ID.' },
+        action: { type: 'string', description: 'Action to perform (e.g. "turn_on", "vacuum.start", "light.turn_on").' },
+        params: { type: 'string', description: 'JSON object of extra params (e.g. {"brightness":200,"entity_id":"light.kitchen"}).' },
+      },
+      required: ['id', 'action'],
+    },
+  },
+  {
+    name: 'iot_command',
+    description: 'Send a natural-language command to one or all IoT devices. e.g. "turn off the living room lights", "start the roomba", "set bedroom lights to blue".',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        text:      { type: 'string', description: 'Plain-English command.' },
+        device_id: { type: 'string', description: 'Optional: target a specific device ID or name substring.' },
+      },
+      required: ['text'],
+    },
+  },
+  {
+    name: 'iot_discover',
+    description: 'Scan the local network subnet for Shelly, Tasmota, WLED, ESPHome, and Home Assistant devices.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        subnet: { type: 'string', description: 'Any IP on the subnet to scan, e.g. "192.168.1.1". Scans .1–.254.' },
+      },
+    },
+  },
+  {
+    name: 'iot_ha_entities',
+    description: 'List all Home Assistant entities (lights, switches, sensors, vacuums, etc.).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id:     { type: 'string', description: 'Home Assistant device ID.' },
+        filter: { type: 'string', description: 'Optional substring filter on entity_id or state.' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'iot_ha_service',
+    description: 'Call any Home Assistant service directly (e.g. domain=light, service=turn_on).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id:      { type: 'string', description: 'Home Assistant device ID.' },
+        domain:  { type: 'string', description: 'HA domain, e.g. "light", "switch", "vacuum", "climate".' },
+        service: { type: 'string', description: 'HA service, e.g. "turn_on", "set_temperature", "start".' },
+        data:    { type: 'string', description: 'JSON object of service data, e.g. {"entity_id":"light.kitchen","brightness":200}.' },
+      },
+      required: ['id', 'domain', 'service'],
+    },
+  },
+
+  // ── Roomba ──
+  {
+    name: 'roomba_start',
+    description: 'Start the Roomba cleaning. Optionally specify which rooms to clean.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id:    { type: 'string', description: 'Roomba device ID.' },
+        rooms: { type: 'string', description: 'JSON array of room names to clean (omit for full clean).' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'roomba_stop',
+    description: 'Stop the Roomba and send it back to the dock.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Roomba device ID.' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'roomba_avoid_occupied',
+    description: 'Start the Roomba but automatically skip any rooms that currently have people in them (based on phone presence tracking). Perfect for cleaning while you are home.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Roomba device ID.' },
+      },
+      required: ['id'],
+    },
+  },
+
+  // ── Room Presence Tracking ──
+  {
+    name: 'presence_rooms',
+    description: 'Get the current room occupancy map — which rooms have people in them right now.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'presence_who_is_home',
+    description: 'List everyone currently detected at home and which rooms they are in.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'presence_is_room_clear',
+    description: 'Check whether a specific room is currently unoccupied.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        room: { type: 'string', description: 'Room name to check, e.g. "kitchen".' },
+      },
+      required: ['room'],
+    },
+  },
+  {
+    name: 'presence_list_phones',
+    description: 'List all registered tracking phones/devices used for room presence detection.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'presence_add_phone',
+    description: 'Register a phone or device for presence tracking. The bridge will ping its IP to detect when the person is home.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        person: { type: 'string', description: 'Person name, e.g. "Brett".' },
+        name:   { type: 'string', description: 'Device label, e.g. "Brett\'s iPhone".' },
+        ip:     { type: 'string', description: 'Local IP address of the device, e.g. "192.168.1.42".' },
+        mac:    { type: 'string', description: 'MAC address for ARP fallback detection (optional).' },
+        room:   { type: 'string', description: 'Default room to assign when first detected home (optional).' },
+      },
+      required: ['person', 'ip'],
+    },
+  },
+  {
+    name: 'presence_checkin',
+    description: 'Manually check a person into a room. Call this from iOS Shortcuts or Tasker when they enter a room (e.g. via NFC tag).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        person: { type: 'string', description: 'Person name.' },
+        room:   { type: 'string', description: 'Room name, e.g. "bedroom".' },
+      },
+      required: ['person', 'room'],
+    },
+  },
+  {
+    name: 'presence_checkout',
+    description: 'Check a person out of a room (or out of home entirely if no room specified).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        person: { type: 'string', description: 'Person name.' },
+        room:   { type: 'string', description: 'Room to leave. Omit to mark person as fully away.' },
+      },
+      required: ['person'],
+    },
+  },
+  {
+    name: 'presence_scan',
+    description: 'Ping all registered phones to refresh home/away status. Run this periodically or on-demand.',
+    inputSchema: { type: 'object', properties: {} },
+  },
 ];
 
 // ─── Tool dispatcher ──────────────────────────────────────────────────────────
@@ -550,6 +771,49 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case 'slack_post':      return bridgePost('/slack-post', args);
     case 'get_config':      return bridgeGet('/config');
     case 'get_log':         return bridgeGet('/log');
+
+    // ── IoT ──
+    case 'iot_list_devices':  return bridgeGet('/iot/devices');
+    case 'iot_add_device':    return bridgePost('/iot/devices', {
+      ...args,
+      meta: args.meta ? JSON.parse(String(args.meta)) : undefined,
+    });
+    case 'iot_remove_device': return request('DELETE', `/iot/devices?id=${encodeURIComponent(String(args.id ?? ''))}`);
+    case 'iot_status':        return bridgeGet('/iot/status',   { id: String(args.id ?? '') });
+    case 'iot_status_all':    return bridgeGet('/iot/status-all');
+    case 'iot_control':       return bridgePost('/iot/control',  {
+      id: args.id,
+      action: args.action,
+      params: args.params ? JSON.parse(String(args.params)) : {},
+    });
+    case 'iot_command':       return bridgePost('/iot/command',  args);
+    case 'iot_discover':      return bridgeGet('/iot/discover',  args.subnet ? { subnet: String(args.subnet) } : {});
+    case 'iot_ha_entities':   return bridgeGet('/iot/ha/entities', {
+      id: String(args.id ?? ''),
+      ...(args.filter ? { filter: String(args.filter) } : {}),
+    });
+    case 'iot_ha_service':    return bridgePost('/iot/ha/service', {
+      ...args,
+      data: args.data ? JSON.parse(String(args.data)) : {},
+    });
+
+    // ── Roomba ──
+    case 'roomba_start':          return bridgePost('/iot/roomba/start', {
+      id: args.id,
+      rooms: args.rooms ? JSON.parse(String(args.rooms)) : undefined,
+    });
+    case 'roomba_stop':           return bridgePost('/iot/roomba/stop',           { id: args.id });
+    case 'roomba_avoid_occupied': return bridgePost('/iot/roomba/avoid-occupied', { id: args.id });
+
+    // ── Presence ──
+    case 'presence_rooms':        return bridgeGet('/presence/rooms');
+    case 'presence_who_is_home':  return bridgeGet('/presence/who-is-home');
+    case 'presence_is_room_clear':return bridgeGet('/presence/is-room-clear', { room: String(args.room ?? '') });
+    case 'presence_list_phones':  return bridgeGet('/presence/phones');
+    case 'presence_add_phone':    return bridgePost('/presence/phones', args);
+    case 'presence_checkin':      return bridgePost('/presence/checkin', args);
+    case 'presence_checkout':     return bridgePost('/presence/checkout', args);
+    case 'presence_scan':         return bridgePost('/presence/scan', {});
 
     default:
       throw new Error(`Unknown tool: ${name}`);

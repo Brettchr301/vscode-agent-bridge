@@ -237,6 +237,156 @@ bridge.slack_post(f"Done! Changed files: {result['files_changed']}")
 
 ---
 
+## IoT Device Control
+
+Connect your AI / Copilot to any smart home device. Devices are stored in `~/.agent-bridge/iot-devices.json`.
+
+### Supported device types
+
+| Type | What it connects to |
+|---|---|
+| `homeassistant` | Home Assistant instance (all 3,000+ integrations it supports) |
+| `roomba` | iRobot Roomba via Home Assistant |
+| `hue` | Philips Hue bridge (lights) |
+| `shelly` | Shelly smart plugs, dimmers, relays — local HTTP |
+| `tasmota` | Any Tasmota-flashed device — local HTTP |
+| `esphome` | ESPHome devices — local REST API |
+| `wled` | WLED LED strip controllers |
+| `tuya` | Tuya / Smart Life cloud API |
+| `mqtt` | Any MQTT broker — publishes via `mosquitto_pub` |
+| `rest` | Generic REST device — you define the endpoints |
+
+### Register a device
+
+```bash
+# Register Home Assistant
+curl -X POST http://127.0.0.1:3131/iot/devices \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Home HA","type":"homeassistant","host":"192.168.1.10","port":8123,"token":"<HA_LONG_LIVED_TOKEN>"}'
+
+# Register a Roomba (via HA) — include which rooms map to which HA zone IDs
+curl -X POST http://127.0.0.1:3131/iot/devices \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name":"Roomba",
+    "type":"roomba",
+    "host":"192.168.1.10",
+    "port":8123,
+    "token":"<HA_TOKEN>",
+    "meta":{"entity_id":"vacuum.roomba","rooms":{"kitchen":"1","bedroom":"2","lounge":"3"}}
+  }'
+
+# Register a Shelly plug
+curl -X POST http://127.0.0.1:3131/iot/devices \
+  -d '{"name":"Dryer Plug","type":"shelly","host":"192.168.1.55"}'
+```
+
+### Control devices
+
+```bash
+# Natural-language command (no API knowledge needed)
+curl -X POST http://127.0.0.1:3131/iot/command \
+  -d '{"text":"turn off the living room lights"}'
+
+# Or via an AI agent / Slack message:
+POST /iot/command  {"text": "start the roomba"}
+POST /iot/command  {"text": "set bedroom lights blue"}
+POST /iot/command  {"text": "turn off the dryer plug"}
+
+# Direct control
+POST /iot/control  {"id":"home-ha","action":"light.turn_on","params":{"entity_id":"light.kitchen","brightness":200}}
+POST /iot/control  {"id":"dryer-plug","action":"turn_off"}
+GET  /iot/status?id=roomba
+
+# Discover devices on your LAN automatically
+GET  /iot/discover?subnet=192.168.1.1
+```
+
+---
+
+## Room Presence Tracking
+
+Track which rooms people are in — then let the AI use that data to make smart decisions (e.g. have the Roomba avoid occupied rooms).
+
+### How it works
+
+**Phone ping detection** — the bridge pings your phone's local IP. If it replies, you're home.  
+**Manual room check-in** — call `/presence/checkin` from an iOS Shortcut, Tasker task, or NFC tag when you enter a room.  
+**AI / Slack command** — tell the AI "I'm in the kitchen" and it calls the check-in API automatically.
+
+### Setup
+
+```bash
+# 1. Register your phone (find your phone's local IP in WiFi settings)
+curl -X POST http://127.0.0.1:3131/presence/phones \
+  -d '{"person":"Brett","name":"Brett iPhone","ip":"192.168.1.42","mac":"aa:bb:cc:dd:ee:ff","room":"lounge"}'
+
+# 2. Scan to detect who is home
+curl -X POST http://127.0.0.1:3131/presence/scan
+
+# 3. Check current occupancy
+curl http://127.0.0.1:3131/presence/rooms
+```
+
+### iOS Shortcuts / Tasker automation
+
+Create a shortcut that runs when you connect to a specific WiFi network or scan an NFC tag:
+
+```
+POST http://192.168.1.YourPC:3131/presence/checkin
+{"person":"Brett","room":"kitchen"}
+```
+
+Add a matching shortcut on leaving:
+
+```
+POST http://192.168.1.YourPC:3131/presence/checkout
+{"person":"Brett","room":"kitchen"}
+```
+
+### Roomba + presence integration
+
+```bash
+# Start Roomba, but skip any rooms you're currently in
+curl -X POST http://127.0.0.1:3131/iot/roomba/avoid-occupied \
+  -d '{"id":"roomba"}'
+```
+
+This automatically:
+1. Reads current room occupancy from presence tracking
+2. Finds empty rooms from the Roomba's room map
+3. Starts a targeted clean of only the unoccupied rooms
+
+### Via Slack / AI chat
+
+Because every IoT and presence endpoint is exposed over HTTP and MCP, you can just ask your AI in Slack:
+
+```
+You: "Start the roomba but avoid my bedroom, I'm working in there"
+AI: calls POST /presence/checkin {"person":"Brett","room":"bedroom"}
+    then POST /iot/roomba/avoid-occupied {"id":"roomba"}
+    → Roomba cleans kitchen, lounge, office — skips bedroom ✓
+
+You: "Turn off all the lights"
+AI: calls POST /iot/command {"text":"turn off all lights"}
+    → All registered light devices turned off ✓
+```
+
+### Presence API reference
+
+| Method | Path | Body / Query | Returns |
+|---|---|---|---|
+| GET | `/presence/rooms` | — | `{occupied_rooms[], map, anyone_home}` |
+| GET | `/presence/who-is-home` | — | `{people[{person,rooms[],last_seen}]}` |
+| GET | `/presence/is-room-clear?room=` | — | `{room, clear, occupants[]}` |
+| POST | `/presence/checkin` | `{person, room}` | `{current_rooms[]}` |
+| POST | `/presence/checkout` | `{person, room?}` | `{current_rooms[]}` |
+| POST | `/presence/scan` | — | `{results[], occupied_rooms[]}` |
+| GET | `/presence/phones` | — | `{phones[]}` |
+| POST | `/presence/phones` | `{person, ip, name?, mac?, room?}` | `{phone}` |
+
+---
+
 ## Slack Setup
 
 1. Go to [api.slack.com/apps](https://api.slack.com/apps) → Create App → From Scratch

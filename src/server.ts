@@ -14,6 +14,8 @@ import { workspaceRoutes }  from './routes/workspace';
 import { systemRoutes }     from './routes/system';
 import { slackRoutes }      from './routes/slack';
 import { copilotRoutes }    from './routes/copilot-routes';
+import { iotRoutes }        from './routes/iot';
+import { presenceRoutes }   from './routes/presence';
 
 /** All route modules in priority order. */
 const ROUTE_MODULES = [
@@ -26,6 +28,8 @@ const ROUTE_MODULES = [
   workspaceRoutes,
   systemRoutes,
   slackRoutes,
+  iotRoutes,
+  presenceRoutes,
 ];
 
 async function route(req: http.IncomingMessage, res: http.ServerResponse) {
