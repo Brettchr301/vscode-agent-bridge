@@ -204,6 +204,34 @@ const BASE_RISK: Record<IoTDeviceType, number> = {
   tasmota:       14,  // local HTTP, open firmware
   esphome:       14,  // local HTTP, open firmware
   wled:          10,  // LED control only
+  // Extended protocol types
+  zigbee2mqtt:   30,  // local broker, moderately sensitive
+  zwave:         25,  // local, well-encrypted Z-Wave S2
+  deconz:        28,  // local, controls lights + sensors
+  modbus:        45,  // industrial — no auth by default
+  bacnet:        45,  // industrial — no auth by default
+  knx:           42,  // industrial building automation
+  onvif:         35,  // camera: privacy risk
+  ring:          40,  // cloud camera: data leaves home
+  kasa:          20,  // local XOR (weak but local)
+  govee:          18,  // cloud lights, low direct risk
+  nanoleaf:       18,  // local, well-maintained
+  meross:         25,  // cloud-dependent
+  broadlink:      22,  // local IR/RF blaster
+  miio:           22,  // local Xiaomi
+  nest:           38,  // cloud thermostat, Google account
+  ecobee:         35,  // cloud thermostat
+  sensibo:        30,  // cloud HVAC
+  august:         55,  // smart lock — HIGH
+  yale:           55,  // smart lock — HIGH
+  schlage:        55,  // smart lock — HIGH
+  solar:          20,  // solar data, low direct risk
+  victron:        28,  // local Modbus energy
+  powerwall:      35,  // local Tesla, energy control
+  enphase:        25,  // cloud solar
+  obd2:           30,  // vehicle CAN bus
+  lorawan:        35,  // LoRa gateway admin
+  coap:           30,  // CoAP typically no auth
 };
 
 const CRED_PREFIXES = ['dpapi:', 'keychain:', 'xor:'];

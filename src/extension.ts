@@ -1,5 +1,5 @@
 ﻿/**
- * VS Code Agent Bridge  v3.6   entry point
+ * VS Code Agent Bridge  v3.7   entry point
  *
  * Starts an HTTP bridge on :3131, an MCP SSE server on :3132 (for ChatGPT),
  * an automation/scheduling engine, and a security monitoring layer.
@@ -11,11 +11,12 @@ import * as http   from 'http';
 import * as cp     from 'child_process';
 import * as path   from 'path';
 import * as fs     from 'fs';
-import { createHttpServer, registerChangeListeners, getToken } from './server';
+import { createHttpServer, registerChangeListeners, getToken, seedServices } from './server';
 import { activePort } from './state';
 import { startAutomationEngine, stopAutomationEngine, injectPresenceFns } from './routes/automations';
 import { getOccupiedRooms, isAnyoneHome } from './routes/presence';
 import { runSecurityScan } from './routes/security';
+import { setNotifyFn } from './services/approval';
 
 let srv:    http.Server | null        = null;
 let sseProc: cp.ChildProcess | null   = null;
@@ -152,7 +153,7 @@ export function activate(context: vscode.ExtensionContext) {
     // First-run notification
     const configFile = `~/.agent-bridge/config.json`;
     vscode.window.showInformationMessage(
-      `Agent Bridge v3.5 started on :${port} | Auth token: ${short}…`,
+      `Agent Bridge v3.7 started on :${port} | Auth token: ${short}…`,
       'Copy Token',
       'Copy URL',
     ).then(sel => {
@@ -161,13 +162,20 @@ export function activate(context: vscode.ExtensionContext) {
     });
   });
 
-  // Fallback update in case the event fires before listener is registered
+  // ── Seed secret manager + orchestrator with bridge token ────────────────
+  //    Done after createHttpServer() ensures token is generated.
   setTimeout(() => {
+    seedServices();
     const port  = activePort;
     const token = getToken();
     bar.text    = `$(plug) Bridge :${port}`;
     tokenBar.text = `$(key) ${token.slice(0, 8)}…`;
   }, 500);
+
+  // ── Wire approval gate notification ──────────────────────────────────────
+  setNotifyFn((msg, ...items) =>
+    Promise.resolve(vscode.window.showWarningMessage(msg, ...items)),
+  );
 
   // ── Inject presence helpers into automation engine ─────────────────────────
   injectPresenceFns(getOccupiedRooms, isAnyoneHome);

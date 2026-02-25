@@ -2,7 +2,7 @@
   "name": "vscode-agent-bridge",
   "displayName": "Agent Bridge",
   "description": "Local HTTP bridge giving AI agents full access to VS Code, GitHub Copilot, filesystem and terminal  all from localhost.",
-  "version": "3.6.0",
+  "version": "3.7.0",
   "publisher": "brettco",
   "license": "MIT",
   "repository": {

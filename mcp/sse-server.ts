@@ -137,6 +137,46 @@ const TOOLS = [
   { name: 'security_analyze',   description: 'Ask AI (DeepSeek/GPT-4o) to analyse the current security posture and recommend fixes', inputSchema: { type: 'object' as const, properties: {} } },
   { name: 'security_remediate', description: 'Get remediation steps for a specific device',  inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Device ID' } }, required: ['id'] as string[] } },
   { name: 'security_rate_limits', description: 'List currently blocked or throttled IP addresses', inputSchema: { type: 'object' as const, properties: {} } },
+  // IoT Extended — new protocols
+  { name: 'iot_protocols',          description: 'List all 35+ supported IoT protocols and device families', inputSchema: { type: 'object' as const, properties: {} } },
+  { name: 'iot_zigbee_devices',     description: 'List Zigbee devices via Zigbee2MQTT', inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Z2M bridge device ID' } }, required: ['id'] as string[] } },
+  { name: 'iot_zigbee_set',         description: 'Set Zigbee device state (on/off/brightness/color)', inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Z2M bridge ID' }, ieee: { type: 'string', description: 'IEEE address' }, state: { type: 'string', description: 'JSON state object' } }, required: ['id', 'ieee', 'state'] as string[] } },
+  { name: 'iot_zwave_nodes',        description: 'List Z-Wave nodes via Z-Wave JS UI', inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Z-Wave device ID' } }, required: ['id'] as string[] } },
+  { name: 'iot_modbus_read',        description: 'Read Modbus TCP holding registers', inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Modbus device ID' }, register: { type: 'number', description: 'Start register' }, count: { type: 'number', description: 'Number of registers' } }, required: ['id', 'register'] as string[] } },
+  { name: 'iot_modbus_write',       description: 'Write a Modbus TCP holding register', inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Device ID' }, register: { type: 'number' }, value: { type: 'number' } }, required: ['id', 'register', 'value'] as string[] } },
+  { name: 'iot_onvif_info',         description: 'Get ONVIF camera device information', inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Camera device ID' } }, required: ['id'] as string[] } },
+  { name: 'iot_onvif_snapshot',     description: 'Get snapshot URL from ONVIF camera', inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Camera device ID' } }, required: ['id'] as string[] } },
+  { name: 'iot_kasa_devices',       description: 'Get TP-Link Kasa device info (local TCP)', inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Kasa device ID' } }, required: ['id'] as string[] } },
+  { name: 'iot_kasa_set',           description: 'Turn TP-Link Kasa plug on or off', inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Device ID' }, state: { type: 'boolean', description: 'true=on, false=off' }, childId: { type: 'string', description: 'For multi-outlet plugs' } }, required: ['id', 'state'] as string[] } },
+  { name: 'iot_lock_status',        description: 'Get smart lock status (August/Yale)', inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Lock device ID' } }, required: ['id'] as string[] } },
+  { name: 'iot_lock_lock',          description: 'Lock a smart lock', inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Lock device ID' } }, required: ['id'] as string[] } },
+  { name: 'iot_lock_unlock',        description: 'Unlock a smart lock (requires approval if gate enabled)', inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Lock device ID' } }, required: ['id'] as string[] } },
+  { name: 'iot_powerwall_status',   description: 'Get Tesla Powerwall battery + grid status', inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Powerwall device ID' } }, required: ['id'] as string[] } },
+  { name: 'iot_enphase_status',     description: 'Get Enphase IQ Gateway solar production stats', inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Enphase device ID' } }, required: ['id'] as string[] } },
+  { name: 'iot_victron_status',     description: 'Get Victron Energy (MPPT/inverter) status via Modbus', inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Victron device ID' } }, required: ['id'] as string[] } },
+  { name: 'iot_obd2_status',        description: 'Get live OBD-II vehicle data (RPM, speed, fuel, etc.)', inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'OBD-II dongle device ID' } }, required: ['id'] as string[] } },
+  { name: 'iot_nest_status',        description: 'Get Google Nest thermostat state', inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Nest device ID' } }, required: ['id'] as string[] } },
+  { name: 'iot_ecobee_status',      description: 'Get Ecobee thermostat state', inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Ecobee device ID' } }, required: ['id'] as string[] } },
+  // Orchestrator
+  { name: 'orch_status',            description: 'Get orchestrator status, active models, task queue', inputSchema: { type: 'object' as const, properties: {} } },
+  { name: 'orch_task',              description: 'Submit a task to the multi-model orchestrator (planner→judge→executor→verifier)', inputSchema: { type: 'object' as const, properties: { type: { type: 'string', description: 'code_edit | terminal | git | iot | general | fix_errors' }, description: { type: 'string', description: 'What to do' }, autonomy: { type: 'string', description: 'supervised | assisted | autonomous' } }, required: ['type', 'description'] as string[] } },
+  { name: 'orch_task_status',       description: 'Get orchestrator task status and result', inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Task ID' } }, required: ['id'] as string[] } },
+  { name: 'orch_propose',           description: 'Run parallel proposals (DeepSeek + Copilot) and judge picks best', inputSchema: { type: 'object' as const, properties: { description: { type: 'string', description: 'What you want to build / change' }, type: { type: 'string', description: 'Task type hint' } }, required: ['description'] as string[] } },
+  { name: 'orch_models',            description: 'List model profiles with cost, role, and empirical success rates', inputSchema: { type: 'object' as const, properties: {} } },
+  { name: 'orch_route',             description: 'Ask router which model to use for a task type (cost-optimal)', inputSchema: { type: 'object' as const, properties: { type: { type: 'string', description: 'Task type e.g. code_edit' } }, required: ['type'] as string[] } },
+  { name: 'orch_telemetry',         description: 'Get per-model success rate, latency, and cost statistics', inputSchema: { type: 'object' as const, properties: {} } },
+  // Approval gate
+  { name: 'approval_pending',       description: 'List pending human-approval requests', inputSchema: { type: 'object' as const, properties: {} } },
+  { name: 'approval_decide',        description: 'Approve or reject a pending action', inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Approval request ID' }, decision: { type: 'string', description: 'approved | rejected' }, reason: { type: 'string', description: 'Optional reason' } }, required: ['id', 'decision'] as string[] } },
+  // NavML
+  { name: 'ml_context',             description: 'Get structured VS Code editor context (active file, cursor, recent changes)', inputSchema: { type: 'object' as const, properties: {} } },
+  { name: 'ml_diagnostics',         description: 'Get current compiler errors and warnings with fix suggestions', inputSchema: { type: 'object' as const, properties: {} } },
+  { name: 'ml_classify',            description: 'Classify a natural language instruction into an action category with risk level', inputSchema: { type: 'object' as const, properties: { text: { type: 'string', description: 'What you want to do' } }, required: ['text'] as string[] } },
+  { name: 'ml_suggest',             description: 'Get step-by-step bridge API actions to accomplish a task', inputSchema: { type: 'object' as const, properties: { task: { type: 'string', description: 'Describe what you want to accomplish' } }, required: ['task'] as string[] } },
+  { name: 'ml_diff_preview',        description: 'Preview a proposed file edit as a unified diff before applying', inputSchema: { type: 'object' as const, properties: { path: { type: 'string', description: 'Absolute file path' }, newContent: { type: 'string', description: 'Proposed new content' } }, required: ['path', 'newContent'] as string[] } },
+  { name: 'ml_workspace_map',       description: 'Get a semantic map of workspace files (paths, extensions, counts)', inputSchema: { type: 'object' as const, properties: {} } },
+  // Telemetry
+  { name: 'telemetry_summary',      description: 'Get per-model performance summary (success rate, latency, cost)', inputSchema: { type: 'object' as const, properties: {} } },
 ];
 
 // ─── Tool dispatcher ──────────────────────────────────────────────────────────
@@ -179,7 +219,46 @@ async function dispatchTool(name: string, args: Record<string, unknown>): Promis
     case 'security_analyze':   return bridgePost('/security/analyze', {});
     case 'security_remediate': return bridgePost(`/security/remediate/${args.id}`, {});
     case 'security_rate_limits': return bridgeGet('/security/rate-limits');
-    default:
+    // IoT Extended
+    case 'iot_protocols':         return bridgeGet('/iot/protocols');
+    case 'iot_zigbee_devices':    return bridgeGet('/iot/zigbee/devices', `id=${args.id}`);
+    case 'iot_zigbee_set':        return bridgePost('/iot/zigbee/set', { id: args.id, ieee: args.ieee, state: typeof args.state === 'string' ? JSON.parse(args.state as string) : args.state });
+    case 'iot_zwave_nodes':       return bridgeGet('/iot/zwave/nodes', `id=${args.id}`);
+    case 'iot_modbus_read':       return bridgeGet('/iot/modbus/read', `id=${args.id}&register=${args.register}&count=${args.count ?? 1}`);
+    case 'iot_modbus_write':      return bridgePost('/iot/modbus/write', { id: args.id, register: args.register, value: args.value });
+    case 'iot_onvif_info':        return bridgeGet('/iot/onvif/info', `id=${args.id}`);
+    case 'iot_onvif_snapshot':    return bridgeGet('/iot/onvif/snapshot', `id=${args.id}`);
+    case 'iot_kasa_devices':      return bridgeGet('/iot/kasa/devices', `id=${args.id}`);
+    case 'iot_kasa_set':          return bridgePost('/iot/kasa/set', { id: args.id, state: args.state, childId: args.childId });
+    case 'iot_lock_status':       return bridgeGet('/iot/lock/status', `id=${args.id}`);
+    case 'iot_lock_lock':         return bridgePost('/iot/lock/lock', { id: args.id });
+    case 'iot_lock_unlock':       return bridgePost('/iot/lock/unlock', { id: args.id });
+    case 'iot_powerwall_status':  return bridgeGet('/iot/powerwall/status', `id=${args.id}`);
+    case 'iot_enphase_status':    return bridgeGet('/iot/enphase/status', `id=${args.id}`);
+    case 'iot_victron_status':    return bridgeGet('/iot/victron/status', `id=${args.id}`);
+    case 'iot_obd2_status':       return bridgeGet('/iot/obd2/status', `id=${args.id}`);
+    case 'iot_nest_status':       return bridgeGet('/iot/nest/status', `id=${args.id}`);
+    case 'iot_ecobee_status':     return bridgeGet('/iot/ecobee/status', `id=${args.id}`);
+    // Orchestrator
+    case 'orch_status':           return bridgeGet('/orchestrator/status');
+    case 'orch_task':             return bridgePost('/orchestrator/task', { type: args.type, description: args.description, autonomy: args.autonomy });
+    case 'orch_task_status':      return bridgeGet(`/orchestrator/task/${args.id}`);
+    case 'orch_propose':          return bridgePost('/orchestrator/propose', { description: args.description, type: args.type });
+    case 'orch_models':           return bridgeGet('/orchestrator/models');
+    case 'orch_route':            return bridgePost('/orchestrator/route', { type: args.type });
+    case 'orch_telemetry':        return bridgeGet('/orchestrator/telemetry');
+    // Approval
+    case 'approval_pending':      return bridgeGet('/approval/pending');
+    case 'approval_decide':       return bridgePost('/approval/decide', { id: args.id, decision: args.decision, reason: args.reason });
+    // NavML
+    case 'ml_context':            return bridgeGet('/ml/context');
+    case 'ml_diagnostics':        return bridgeGet('/ml/diagnostics');
+    case 'ml_classify':           return bridgePost('/ml/classify', { text: args.text });
+    case 'ml_suggest':            return bridgePost('/ml/suggest', { task: args.task });
+    case 'ml_diff_preview':       return bridgePost('/ml/diff-preview', { path: args.path, newContent: args.newContent });
+    case 'ml_workspace_map':      return bridgeGet('/ml/workspace-map');
+    // Telemetry
+    case 'telemetry_summary':     return bridgeGet('/telemetry/summary');
       throw new Error(`Unknown tool: ${name}`);
   }
 }
@@ -202,7 +281,7 @@ async function handleJsonRpc(rpc: JsonRpcRequest): Promise<unknown> {
       result: {
         protocolVersion: '2024-11-05',
         capabilities:    { tools: {} },
-        serverInfo:      { name: 'vscode-agent-bridge', version: '3.6.0' },
+        serverInfo:      { name: 'vscode-agent-bridge', version: '3.7.0' },
       },
     };
   }
@@ -320,7 +399,7 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify({
       ok:           true,
       server:       'vscode-agent-bridge-sse',
-      version:      '3.5.0',
+      version:      '3.7.0',
       sse_port:     SSE_PORT,
       bridge_port:  BRIDGE_PORT,
       active_sessions: sessions.size,

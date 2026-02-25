@@ -16,10 +16,16 @@ import { systemRoutes }      from './routes/system';
 import { slackRoutes }       from './routes/slack';
 import { copilotRoutes }     from './routes/copilot-routes';
 import { iotRoutes }         from './routes/iot';
+import { iotExtraRoutes }    from './routes/iot-extra';
 import { presenceRoutes }    from './routes/presence';
 import { automationsRoutes } from './routes/automations';
 import { deepseekRoutes }    from './routes/deepseek';
 import { securityRoutes, checkRateLimit, recordAuthFailure } from './routes/security';
+import { orchestratorRoutes, seedBridgeToken } from './routes/orchestrator';
+import { navmlRoutes }       from './routes/navml';
+import { approvalRoutes }    from './services/approval';
+import { telemetryRoutes }   from './services/telemetry';
+import { secretManager }     from './services/secret-manager';
 
 /** All route modules in priority order. */
 const ROUTE_MODULES = [
@@ -34,9 +40,14 @@ const ROUTE_MODULES = [
   systemRoutes,
   slackRoutes,
   iotRoutes,
+  iotExtraRoutes,
   presenceRoutes,
   automationsRoutes,
   securityRoutes,
+  orchestratorRoutes,
+  navmlRoutes,
+  approvalRoutes,
+  telemetryRoutes,
 ];
 
 // ─── Auth token (auto-generated on first run, stored in config.json) ─────────
@@ -77,6 +88,16 @@ export function getOrCreateAuthToken(): string {
 
 /** Expose so extension.ts can show the token in a notification on first run. */
 export function getToken() { return _cachedToken ?? getOrCreateAuthToken(); }
+
+/**
+ * Seed all services that need the auth token.
+ * Called once after the token is established at extension activation.
+ */
+export function seedServices(): void {
+  const tok = getToken();
+  secretManager.seed('bridge-token', tok);
+  seedBridgeToken(tok);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 
