@@ -1,9 +1,12 @@
 out/
+out-test/
 node_modules/
 *.vsix
 .vscode-test/
 *.log
 *.js.map
+mcp/*.js
+test/*.js
 
 # Secrets — never commit these
 settings.json

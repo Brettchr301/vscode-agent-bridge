@@ -1,6 +1,6 @@
 # VS Code Agent Bridge
 
-A local HTTP bridge that gives any AI agent **full programmatic control** over VS Code, GitHub Copilot, the local filesystem, terminal, and Slack — all running entirely on your machine.
+A local HTTP bridge that gives any AI agent **full programmatic control** over VS Code, GitHub Copilot, the local filesystem, terminal, git, clipboard, processes, and Slack — all running entirely on your machine.
 
 ---
 
@@ -11,9 +11,16 @@ Starts a lightweight HTTP server on `127.0.0.1:3131` the moment VS Code opens. Y
 - **Prompt Copilot** directly and get the response as JSON
 - **Write, read, edit files** on your disk
 - **Run terminal commands** and capture their output
-- **Open files** in the VS Code editor
+- **Git operations** — status, diff, commit, push
+- **Search workspace** — regex/text grep across all files
+- **Clipboard** — read and write
+- **Process management** — list + kill processes
+- **Outbound HTTP proxy** — make HTTP/HTTPS requests through the bridge
+- **Code symbols** — get function/class outline for any file
 - **Auto-dismiss** Allow / Continue / Keep dialogs automatically
 - **Post to Slack** when tasks complete
+- **Windows toast notifications**
+- **Schedule commands** to run after a delay
 - **Type into any desktop app** via WScript.Shell (Windows)
 
 Everything stays 100% local. Only the LLM inference call leaves your machine (to Copilot's cloud endpoint).
@@ -24,9 +31,9 @@ Everything stays 100% local. Only the LLM inference call leaves your machine (to
 
 ### 1. Install
 
-**Option A — From source (recommended while in beta):**
+**Option A — From source:**
 ```bash
-git clone https://github.com/YOUR_USERNAME/vscode-agent-bridge.git
+git clone https://github.com/Brettchr301/vscode-agent-bridge.git
 cd vscode-agent-bridge
 npm install
 npm run compile
@@ -60,6 +67,72 @@ Open VS Code Settings (`Ctrl+,`) and search for **Agent Bridge**:
 | `agentBridge.slackChannel` | *(empty)* | Default Slack channel |
 | `agentBridge.autoDismissOnStartup` | `false` | Auto-start dialog poking loop |
 | `agentBridge.maxPromptTimeout` | `300` | Seconds before LLM calls time out |
+
+---
+
+## MCP Server
+
+The extension ships a standalone **MCP (Model Context Protocol) stdio server** so you can connect Claude Desktop, Cursor, and any other MCP-compatible client directly — no HTTP knowledge required.
+
+### Setup — Claude Desktop
+
+1. Find the compiled server at `<extension-folder>/out/mcp/server.js`
+   - Extension folder is usually `~/.vscode/extensions/brettco.vscode-agent-bridge-*/`
+2. Add to `~/AppData/Roaming/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "vscode-agent-bridge": {
+      "command": "node",
+      "args": [
+        "C:\\Users\\YOU\\.vscode\\extensions\\brettco.vscode-agent-bridge-3.4.0\\out\\mcp\\server.js"
+      ]
+    }
+  }
+}
+```
+
+3. Restart Claude Desktop — you'll find **35+ VS Code tools** in every conversation.
+
+### Setup — Cursor / other MCP clients
+
+Add to your MCP config (`.cursor/mcp.json` or equivalent):
+
+```json
+{
+  "servers": {
+    "vscode-agent-bridge": {
+      "command": "node",
+      "args": ["<path-to-extension>/out/mcp/server.js"]
+    }
+  }
+}
+```
+
+### Environment Variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `AGENT_BRIDGE_PORT` | `3131` | Bridge port if you changed it |
+| `AGENT_BRIDGE_TOKEN` | *(empty)* | Bearer token if auth is enabled |
+
+### Available MCP Tools (35+)
+
+| Category | Tools |
+|---|---|
+| Health / Info | `health`, `workspace_info` |
+| Filesystem | `read_file`, `list_dir`, `write_file`, `apply_edit`, `insert_text` |
+| Git | `git_status`, `git_commit`, `git_push`, `git_diff` |
+| Terminal | `run_terminal`, `exec_command` |
+| Editor | `open_file`, `save_all`, `show_message`, `format_file`, `symbols`, `rename_symbol` |
+| Workspace | `diagnostics`, `changes_since`, `search_workspace` |
+| Copilot | `prompt`, `copilot_task` |
+| System | `get_clipboard`, `set_clipboard`, `processes`, `kill_process`, `notify`, `http_proxy` |
+| Approvals | `accept_edits`, `reject_edits`, `keep_going`, `auto_dismiss` |
+| Watch | `watch_start`, `watch_result` |
+| Slack | `slack_post` |
+| Config | `get_config`, `get_log` |
 
 ---
 
