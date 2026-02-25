@@ -19,6 +19,7 @@ import { iotRoutes }         from './routes/iot';
 import { presenceRoutes }    from './routes/presence';
 import { automationsRoutes } from './routes/automations';
 import { deepseekRoutes }    from './routes/deepseek';
+import { securityRoutes, checkRateLimit, recordAuthFailure } from './routes/security';
 
 /** All route modules in priority order. */
 const ROUTE_MODULES = [
@@ -35,6 +36,7 @@ const ROUTE_MODULES = [
   iotRoutes,
   presenceRoutes,
   automationsRoutes,
+  securityRoutes,
 ];
 
 // ─── Auth token (auto-generated on first run, stored in config.json) ─────────
@@ -86,12 +88,24 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse) {
 
   if (meth === 'OPTIONS') { send(res, 200, {}); return; }
 
+  // ── Rate limiting (blocks brute-force before auth check hits) ─────────────
+  const ip = (req.socket.remoteAddress ?? '127.0.0.1').replace(/^::ffff:/, '');
+  if (!checkRateLimit(ip)) {
+    send(res, 429, {
+      ok:    false,
+      error: 'Too Many Requests',
+      hint:  'Rate limit or brute-force block active. Try again later.',
+    });
+    return;
+  }
+
   // ── Auth enforcement (default ON — auto-generates token on first start) ────
   const authToken = getOrCreateAuthToken();
   const PUBLIC_PATHS = new Set(['/health', '/mcp/health']);
   if (!PUBLIC_PATHS.has(pathStr)) {
     const supplied = (req.headers['authorization'] ?? '').replace(/^Bearer\s+/i, '');
     if (supplied !== authToken) {
+      recordAuthFailure(ip);
       send(res, 401, {
         ok:    false,
         error: 'Unauthorized',

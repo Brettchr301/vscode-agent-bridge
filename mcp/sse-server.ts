@@ -130,6 +130,13 @@ const TOOLS = [
   { name: 'automation_run',     description: 'Manually trigger an automation rule',          inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Rule ID' } }, required: ['id'] as string[] } },
   // Slack
   { name: 'slack_post',         description: 'Post a message to Slack',                      inputSchema: { type: 'object' as const, properties: { channel: { type: 'string', description: 'Channel ID' }, text: { type: 'string', description: 'Message text' } }, required: ['text'] as string[] } },
+  // Security
+  { name: 'security_score',     description: 'Get overall + per-device risk scores',         inputSchema: { type: 'object' as const, properties: {} } },
+  { name: 'security_events',    description: 'Get recent security events (auth failures, brute force, anomalies)', inputSchema: { type: 'object' as const, properties: { limit: { type: 'number', description: 'Max events to return (default 50)' } } } },
+  { name: 'security_scan',      description: 'Trigger a full security scan of all IoT devices', inputSchema: { type: 'object' as const, properties: {} } },
+  { name: 'security_analyze',   description: 'Ask AI (DeepSeek/GPT-4o) to analyse the current security posture and recommend fixes', inputSchema: { type: 'object' as const, properties: {} } },
+  { name: 'security_remediate', description: 'Get remediation steps for a specific device',  inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Device ID' } }, required: ['id'] as string[] } },
+  { name: 'security_rate_limits', description: 'List currently blocked or throttled IP addresses', inputSchema: { type: 'object' as const, properties: {} } },
 ];
 
 // ─── Tool dispatcher ──────────────────────────────────────────────────────────
@@ -165,6 +172,13 @@ async function dispatchTool(name: string, args: Record<string, unknown>): Promis
     }
     case 'automation_run':     return bridgePost(`/automations/${args.id}/run`, {});
     case 'slack_post':         return bridgePost('/slack-post', { channel: args.channel, text: args.text });
+    // Security
+    case 'security_score':     return bridgeGet('/security/score');
+    case 'security_events':    return bridgeGet('/security/events', args.limit ? `limit=${args.limit}` : 'limit=50');
+    case 'security_scan':      return bridgePost('/security/scan', {});
+    case 'security_analyze':   return bridgePost('/security/analyze', {});
+    case 'security_remediate': return bridgePost(`/security/remediate/${args.id}`, {});
+    case 'security_rate_limits': return bridgeGet('/security/rate-limits');
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
@@ -188,7 +202,7 @@ async function handleJsonRpc(rpc: JsonRpcRequest): Promise<unknown> {
       result: {
         protocolVersion: '2024-11-05',
         capabilities:    { tools: {} },
-        serverInfo:      { name: 'vscode-agent-bridge', version: '3.5.0' },
+        serverInfo:      { name: 'vscode-agent-bridge', version: '3.6.0' },
       },
     };
   }

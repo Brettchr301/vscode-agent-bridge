@@ -1,8 +1,8 @@
 ﻿/**
- * VS Code Agent Bridge  v3.5   entry point
+ * VS Code Agent Bridge  v3.6   entry point
  *
  * Starts an HTTP bridge on :3131, an MCP SSE server on :3132 (for ChatGPT),
- * and an automation/scheduling engine — all controlled from localhost.
+ * an automation/scheduling engine, and a security monitoring layer.
  *
  * GitHub: https://github.com/Brettchr301/vscode-agent-bridge
  */
@@ -10,15 +10,19 @@ import * as vscode from 'vscode';
 import * as http   from 'http';
 import * as cp     from 'child_process';
 import * as path   from 'path';
+import * as fs     from 'fs';
 import { createHttpServer, registerChangeListeners, getToken } from './server';
 import { activePort } from './state';
 import { startAutomationEngine, stopAutomationEngine, injectPresenceFns } from './routes/automations';
 import { getOccupiedRooms, isAnyoneHome } from './routes/presence';
+import { runSecurityScan } from './routes/security';
 
 let srv:    http.Server | null        = null;
 let sseProc: cp.ChildProcess | null   = null;
-let bar:    vscode.StatusBarItem;
+let bar:     vscode.StatusBarItem;
 let tokenBar: vscode.StatusBarItem;
+let secBar:   vscode.StatusBarItem;
+let secPanel: vscode.WebviewPanel | null = null;
 
 export function activate(context: vscode.ExtensionContext) {
 
@@ -37,6 +41,14 @@ export function activate(context: vscode.ExtensionContext) {
   tokenBar.command = 'agentBridge.copyToken';
   tokenBar.show();
   context.subscriptions.push(tokenBar);
+
+  // ── Security status bar (🛡 shields show risk level) ───────────────────────
+  secBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 998);
+  secBar.text    = '$(shield) Security';
+  secBar.tooltip = 'Agent Bridge Security Dashboard — click to open';
+  secBar.command = 'agentBridge.securityDashboard';
+  secBar.show();
+  context.subscriptions.push(secBar);
 
   // ── Commands ───────────────────────────────────────────────────────────────
   context.subscriptions.push(
@@ -63,6 +75,59 @@ export function activate(context: vscode.ExtensionContext) {
       ).then(sel => {
         if (sel === 'Copy') vscode.env.clipboard.writeText(token);
       });
+    }),
+
+    vscode.commands.registerCommand('agentBridge.securityDashboard', () => {
+      // Reuse existing panel if open
+      if (secPanel) { secPanel.reveal(vscode.ViewColumn.One); return; }
+
+      secPanel = vscode.window.createWebviewPanel(
+        'agentBridgeSecurity',
+        '🛡 Security Dashboard',
+        vscode.ViewColumn.One,
+        {
+          enableScripts: true,
+          localResourceRoots: [vscode.Uri.file(path.join(context.extensionPath, 'media'))],
+          retainContextWhenHidden: true,
+        },
+      );
+
+      const htmlFile = path.join(context.extensionPath, 'media', 'security-dashboard.html');
+      let html = fs.readFileSync(htmlFile, 'utf-8');
+      const port  = activePort;
+      const token = getToken();
+      // Inject bridge URL and token so the webview can call the API
+      html = html
+        .replace(`window.__BRIDGE_URL__ || 'http://127.0.0.1:3131'`,
+                 `'http://127.0.0.1:${port}'`)
+        .replace(`window.__AUTH_TOKEN__  || ''`,
+                 `'${token}'`);
+      secPanel.webview.html = html;
+
+      // Update shield badge with live risk score every 60 s
+      const updateShield = () => {
+        try {
+          const profiles = runSecurityScan();
+          const overall  = profiles.length
+            ? Math.round(profiles.reduce((s, p) => s + p.riskScore, 0) / profiles.length)
+            : 0;
+          const icon = overall >= 75 ? '$(error)'
+                     : overall >= 50 ? '$(warning)'
+                     : overall >= 25 ? '$(shield)'
+                     : '$(pass)';
+          secBar.text    = `${icon} Sec: ${overall}`;
+          secBar.tooltip = `Security score: ${overall}/100 — click to open dashboard`;
+        } catch { /* ignored */ }
+      };
+      updateShield();
+      const shieldTimer = setInterval(updateShield, 60_000);
+
+      secPanel.onDidDispose(() => {
+        secPanel = null;
+        clearInterval(shieldTimer);
+        secBar.text    = '$(shield) Security';
+        secBar.tooltip = 'Agent Bridge Security Dashboard — click to open';
+      }, null, context.subscriptions);
     }),
   );
 
@@ -148,5 +213,7 @@ export function deactivate() {
   stopAutomationEngine();
   bar?.dispose();
   tokenBar?.dispose();
+  secBar?.dispose();
+  secPanel?.dispose();
 }
 

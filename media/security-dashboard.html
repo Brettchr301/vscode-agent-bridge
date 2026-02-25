@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Bridge — Security Dashboard</title>
+<style>
+  :root {
+    --bg:        #0d1117;
+    --surface:   #161b22;
+    --surface2:  #1c2128;
+    --border:    #30363d;
+    --text:      #e6edf3;
+    --text-muted:#8b949e;
+    --green:     #3fb950;
+    --yellow:    #d29922;
+    --orange:    #f0883e;
+    --red:       #f85149;
+    --blue:      #58a6ff;
+    --purple:    #bc8cff;
+    --font:      -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    min-height: 100vh;
+    padding: 0;
+  }
+
+  /* ── Header ── */
+  .header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .header h1 { font-size: 15px; font-weight: 600; flex: 1; }
+  .header .subtitle { color: var(--text-muted); font-size: 11px; }
+  .btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 5px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: var(--font);
+    transition: background .15s, border-color .15s;
+  }
+  .btn:hover { background: #21262d; border-color: #8b949e; }
+  .btn-primary { background: #1f6feb; border-color: #1f6feb; }
+  .btn-primary:hover { background: #388bfd; }
+  .btn-danger { background: #da3633; border-color: #da3633; }
+  .btn-danger:hover { background: #f85149; }
+  .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge-low      { background: #1a3a1f; color: var(--green);  }
+  .badge-medium   { background: #3a2e10; color: var(--yellow); }
+  .badge-high     { background: #3a1e10; color: var(--orange); }
+  .badge-critical { background: #3a1010; color: var(--red);    }
+
+  /* ── Tabs ── */
+  .tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    padding: 0 20px;
+  }
+  .tab {
+    padding: 10px 16px;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 13px;
+    border-bottom: 2px solid transparent;
+    transition: color .15s, border-color .15s;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+
+  /* ── Content ── */
+  .content { padding: 20px; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* ── Score gauge ── */
+  .overview-grid {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+  .gauge-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px 16px;
+    text-align: center;
+  }
+  .gauge-wrap { position: relative; width: 150px; height: 150px; margin: 0 auto 12px; }
+  .gauge-svg { transform: rotate(-90deg); }
+  .gauge-bg   { fill: none; stroke: var(--surface2); stroke-width: 14; }
+  .gauge-fill { fill: none; stroke-width: 14; stroke-linecap: round;
+                transition: stroke-dashoffset 0.8s ease, stroke 0.4s ease; }
+  .gauge-label {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  .gauge-score { font-size: 36px; font-weight: 700; line-height: 1; }
+  .gauge-sub   { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .gauge-title { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+  /* ── Stat cards ── */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 12px;
+    align-content: start;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 14px;
+  }
+  .stat-card .num  { font-size: 28px; font-weight: 700; line-height: 1; }
+  .stat-card .lbl  { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+  .stat-card .num.red    { color: var(--red); }
+  .stat-card .num.orange { color: var(--orange); }
+  .stat-card .num.yellow { color: var(--yellow); }
+  .stat-card .num.green  { color: var(--green); }
+
+  /* ── Device cards ── */
+  .devices-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 14px;
+  }
+  .device-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color .2s;
+  }
+  .device-card::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+  }
+  .device-card.critical::before { background: var(--red); }
+  .device-card.high::before     { background: var(--orange); }
+  .device-card.medium::before   { background: var(--yellow); }
+  .device-card.low::before      { background: var(--green); }
+  .device-card:hover { border-color: #58a6ff50; }
+
+  .device-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+  .device-name { font-weight: 600; font-size: 14px; }
+  .device-type { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+  .risk-bar-wrap { margin: 10px 0; }
+  .risk-bar-label { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+  .risk-bar-track { height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+  .risk-bar-fill  {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.6s ease;
+  }
+  .risk-bar-fill.critical { background: var(--red); }
+  .risk-bar-fill.high     { background: var(--orange); }
+  .risk-bar-fill.medium   { background: var(--yellow); }
+  .risk-bar-fill.low      { background: var(--green); }
+
+  .factors { margin-top: 10px; }
+  .factor-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 0;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .factor-item:first-child { border-top: none; }
+  .factor-score { color: var(--text-muted); font-size: 11px; white-space: nowrap; margin-left: 8px; }
+
+  .device-recs { margin-top: 10px; }
+  .rec-item {
+    background: var(--surface2);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+    line-height: 1.4;
+  }
+  .rec-item::before { content: '→ '; color: var(--blue); }
+
+  .device-actions { margin-top: 12px; display: flex; gap: 6px; }
+
+  /* ── Events ── */
+  .events-list { display: flex; flex-direction: column; gap: 4px; }
+  .event-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .event-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-top: 4px;
+    flex-shrink: 0;
+  }
+  .ev-critical .event-dot { background: var(--red); }
+  .ev-high     .event-dot { background: var(--orange); }
+  .ev-medium   .event-dot { background: var(--yellow); }
+  .ev-low      .event-dot { background: var(--green); }
+  .event-body { flex: 1; }
+  .event-msg  { font-size: 13px; }
+  .event-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .event-ts   { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+
+  /* ── AI Analysis ── */
+  .ai-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .ai-output {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    font-family: monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin-top: 12px;
+    color: var(--text-muted);
+    min-height: 80px;
+  }
+  .ai-output .h1  { color: var(--blue);   font-weight: bold; }
+  .ai-output .h2  { color: var(--purple); font-weight: bold; }
+  .ai-output .warn { color: var(--orange); }
+  .ai-output .crit { color: var(--red); }
+  .ai-header { display: flex; justify-content: space-between; align-items: center; }
+  .ai-model-badge {
+    background: #1f3a5f;
+    color: var(--blue);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+  }
+  .spinner {
+    display: inline-block;
+    width: 14px; height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--blue);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Rate limits ── */
+  .ratelimit-table { width: 100%; border-collapse: collapse; }
+  .ratelimit-table th, .ratelimit-table td {
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .ratelimit-table th { color: var(--text-muted); font-weight: 500; }
+  .ratelimit-table tr:hover td { background: var(--surface2); }
+
+  /* ── Misc ── */
+  .section-title { font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 12px; letter-spacing: .5px; text-transform: uppercase; }
+  .empty-state { text-align: center; color: var(--text-muted); padding: 40px 20px; font-size: 13px; }
+  .last-scan { font-size: 11px; color: var(--text-muted); }
+  .alert-banner {
+    background: #3a1010;
+    border: 1px solid var(--red);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .alert-banner .icon { color: var(--red); font-size: 16px; }
+</style>
+</head>
+<body>
+<div class="header">
+  <div>
+    <h1>🛡 Agent Bridge — Security Dashboard</h1>
+    <div class="subtitle" id="lastScanLabel">Loading…</div>
+  </div>
+  <button class="btn btn-primary" onclick="scanNow()">⟳ Scan Now</button>
+  <button class="btn" onclick="loadAll()">↺ Refresh</button>
+</div>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('overview')">Overview</div>
+  <div class="tab" onclick="switchTab('devices')">Devices <span id="deviceCount" style="color:var(--text-muted)"></span></div>
+  <div class="tab" onclick="switchTab('events')">Events <span id="eventCountBadge" style="color:var(--text-muted)"></span></div>
+  <div class="tab" onclick="switchTab('ai')">AI Analysis</div>
+  <div class="tab" onclick="switchTab('ratelimits')">Rate Limits</div>
+</div>
+
+<div class="content">
+
+  <!-- ── OVERVIEW ── -->
+  <div id="panel-overview" class="panel active">
+    <div id="critAlert" class="alert-banner" style="display:none">
+      <span class="icon">⚠</span>
+      <span id="critAlertMsg"></span>
+    </div>
+    <div class="overview-grid">
+      <div class="gauge-card">
+        <div class="gauge-wrap">
+          <svg class="gauge-svg" viewBox="0 0 150 150" width="150" height="150">
+            <circle class="gauge-bg"   cx="75" cy="75" r="58"/>
+            <circle class="gauge-fill" cx="75" cy="75" r="58"
+                    id="gaugeFill"
+                    stroke-dasharray="364.4"
+                    stroke-dashoffset="364.4"
+                    stroke="var(--green)"/>
+          </svg>
+          <div class="gauge-label">
+            <div class="gauge-score" id="gaugeScore">—</div>
+            <div class="gauge-sub">/100</div>
+          </div>
+        </div>
+        <div class="gauge-title" id="gaugeTitle">Overall Risk Score</div>
+        <div class="gauge-title" id="gaugeGrade" style="font-size:20px;font-weight:700;margin-top:4px">—</div>
+      </div>
+      <div class="stats-grid" id="statsGrid"></div>
+    </div>
+    <div class="section-title">Top Risk Devices</div>
+    <div id="topDevices"></div>
+  </div>
+
+  <!-- ── DEVICES ── -->
+  <div id="panel-devices" class="panel">
+    <div class="devices-grid" id="devicesGrid"></div>
+    <div id="devicesEmpty" class="empty-state" style="display:none">
+      No IoT devices registered. Add devices via <code>POST /iot/devices</code>.
+    </div>
+  </div>
+
+  <!-- ── EVENTS ── -->
+  <div id="panel-events" class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div class="section-title" style="margin:0">Security Events</div>
+      <button class="btn btn-danger" onclick="clearEvents()">Clear Log</button>
+    </div>
+    <div class="events-list" id="eventsList"></div>
+    <div id="eventsEmpty" class="empty-state" style="display:none">No security events recorded yet.</div>
+  </div>
+
+  <!-- ── AI ── -->
+  <div id="panel-ai" class="panel">
+    <div class="ai-card">
+      <div class="ai-header">
+        <div>
+          <div style="font-weight:600;font-size:14px;margin-bottom:4px">AI Threat Analysis</div>
+          <div style="color:var(--text-muted);font-size:12px">
+            Uses DeepSeek R1 or GPT-4o (whichever key is configured) to analyse your current security posture.
+          </div>
+        </div>
+        <span class="ai-model-badge" id="aiModelBadge">DeepSeek / GPT-4o</span>
+      </div>
+      <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="runAIAnalysis()">🤖 Run Analysis</button>
+        <button class="btn" onclick="runAIAnalysis(true)">↺ Re-analyse</button>
+      </div>
+      <div class="ai-output" id="aiOutput">Click "Run Analysis" to get an AI-powered security report on all your devices and recent events.</div>
+    </div>
+    <div id="aiDeviceProfiles"></div>
+  </div>
+
+  <!-- ── RATE LIMITS ── -->
+  <div id="panel-ratelimits" class="panel">
+    <div class="section-title">IP Rate Limits &amp; Blocks</div>
+    <table class="ratelimit-table">
+      <thead><tr>
+        <th>IP Address</th>
+        <th>Requests / min</th>
+        <th>Auth Fails / 5 min</th>
+        <th>Status</th>
+        <th>Blocked Until</th>
+      </tr></thead>
+      <tbody id="rateLimitBody"></tbody>
+    </table>
+    <div id="rateLimitsEmpty" class="empty-state" style="display:none">No suspicious IPs detected.</div>
+  </div>
+
+</div><!-- /content -->
+
+<script>
+// ─── Config injected by VS Code extension ─────────────────────────────────
+const BRIDGE = window.__BRIDGE_URL__ || 'http://127.0.0.1:3131';
+const TOKEN  = window.__AUTH_TOKEN__  || '';
+
+const headers = {
+  'Content-Type':  'application/json',
+  'Authorization': 'Bearer ' + TOKEN,
+};
+
+async function api(method, endpoint, body) {
+  const opts = { method, headers };
+  if (body) opts.body = JSON.stringify(body);
+  try {
+    const r = await fetch(BRIDGE + endpoint, opts);
+    return await r.json();
+  } catch (e) {
+    return { error: String(e) };
+  }
+}
+
+// ─── Tabs ─────────────────────────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((el, i) => {
+    const names = ['overview','devices','events','ai','ratelimits'];
+    el.classList.toggle('active', names[i] === name);
+  });
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-' + name).classList.add('active');
+  if (name === 'events')     loadEvents();
+  if (name === 'ratelimits') loadRateLimits();
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────
+function riskColor(level) {
+  return {critical:'var(--red)',high:'var(--orange)',medium:'var(--yellow)',low:'var(--green)'}[level] || 'var(--text-muted)';
+}
+function grade(score) {
+  if (score < 20) return { g:'A', c:'var(--green)'  };
+  if (score < 35) return { g:'B', c:'var(--green)'  };
+  if (score < 50) return { g:'C', c:'var(--yellow)' };
+  if (score < 65) return { g:'D', c:'var(--orange)' };
+  if (score < 80) return { g:'E', c:'var(--orange)' };
+  return               { g:'F', c:'var(--red)'    };
+}
+function relTime(ms) {
+  const s = (Date.now() - ms) / 1000;
+  if (s < 60)   return Math.round(s) + 's ago';
+  if (s < 3600) return Math.round(s/60) + 'm ago';
+  return Math.round(s/3600) + 'h ago';
+}
+function formatTime(ms) {
+  return new Date(ms).toLocaleString();
+}
+
+// ─── Gauge ────────────────────────────────────────────────────────────────
+function updateGauge(score) {
+  const circ = 2 * Math.PI * 58;  // ~364.4
+  const offset = circ - (score / 100) * circ;
+  const fill = document.getElementById('gaugeFill');
+  fill.style.strokeDashoffset = offset;
+  const level = score >= 75 ? 'critical' : score >= 50 ? 'high' : score >= 25 ? 'medium' : 'low';
+  fill.style.stroke = riskColor(level);
+  document.getElementById('gaugeScore').textContent = score;
+  document.getElementById('gaugeScore').style.color = riskColor(level);
+  const { g, c } = grade(score);
+  document.getElementById('gaugeGrade').textContent = 'Grade ' + g;
+  document.getElementById('gaugeGrade').style.color = c;
+}
+
+// ─── Main load ────────────────────────────────────────────────────────────
+async function loadAll() {
+  document.getElementById('lastScanLabel').textContent = 'Loading…';
+  const data = await api('GET', '/security/score');
+  if (data.error) {
+    document.getElementById('lastScanLabel').textContent = 'Error: ' + data.error;
+    return;
+  }
+
+  const { overall, devices, eventCount, blockedIPs } = data;
+
+  // Header
+  document.getElementById('lastScanLabel').textContent =
+    `Last scan: ${new Date().toLocaleTimeString()} · ${devices.length} device(s) · ${blockedIPs} blocked IP(s)`;
+
+  // Gauge
+  updateGauge(overall);
+
+  // Alert banner for critical devices
+  const crits = devices.filter(d => d.riskLevel === 'critical');
+  if (crits.length > 0) {
+    document.getElementById('critAlert').style.display = 'flex';
+    document.getElementById('critAlertMsg').textContent =
+      `${crits.length} CRITICAL risk device(s): ${crits.map(d=>d.deviceName).join(', ')} — immediate action required`;
+  } else {
+    document.getElementById('critAlert').style.display = 'none';
+  }
+
+  // Stats
+  const counts = { critical:0, high:0, medium:0, low:0 };
+  devices.forEach(d => counts[d.riskLevel]++);
+  document.getElementById('statsGrid').innerHTML = `
+    <div class="stat-card"><div class="num red">${counts.critical}</div><div class="lbl">Critical Devices</div></div>
+    <div class="stat-card"><div class="num orange">${counts.high}</div><div class="lbl">High Risk</div></div>
+    <div class="stat-card"><div class="num yellow">${counts.medium}</div><div class="lbl">Medium Risk</div></div>
+    <div class="stat-card"><div class="num green">${counts.low}</div><div class="lbl">Low Risk</div></div>
+    <div class="stat-card"><div class="num">${devices.length}</div><div class="lbl">Total Devices</div></div>
+    <div class="stat-card"><div class="num ${blockedIPs>0?'red':''}">${blockedIPs}</div><div class="lbl">Blocked IPs</div></div>
+    <div class="stat-card"><div class="num">${eventCount}</div><div class="lbl">Security Events</div></div>
+  `;
+
+  // Tab badges
+  document.getElementById('deviceCount').textContent = devices.length ? `(${devices.length})` : '';
+  document.getElementById('eventCountBadge').textContent = eventCount ? `(${eventCount})` : '';
+
+  // Top 3 risky devices
+  const top = [...devices].sort((a,b)=>b.riskScore-a.riskScore).slice(0,3);
+  document.getElementById('topDevices').innerHTML = top.length
+    ? top.map(d => `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:14px">
+        <div style="min-width:44px;text-align:center;font-size:22px;font-weight:700;color:${riskColor(d.riskLevel)}">${d.riskScore}</div>
+        <div style="flex:1">
+          <div style="font-weight:600">${d.deviceName}</div>
+          <div style="font-size:11px;color:var(--text-muted)">${d.deviceType} — ${d.riskLevel.toUpperCase()}</div>
+        </div>
+        <span class="badge badge-${d.riskLevel}">${d.riskLevel}</span>
+      </div>`).join('')
+    : '<div class="empty-state">No devices to show. Register IoT devices first.</div>';
+
+  // Full devices grid
+  renderDevicesGrid(devices);
+}
+
+// ─── Devices grid ─────────────────────────────────────────────────────────
+function renderDevicesGrid(devices) {
+  if (!devices.length) {
+    document.getElementById('devicesGrid').innerHTML = '';
+    document.getElementById('devicesEmpty').style.display = 'block';
+    return;
+  }
+  document.getElementById('devicesEmpty').style.display = 'none';
+  const sorted = [...devices].sort((a,b)=>b.riskScore-a.riskScore);
+  document.getElementById('devicesGrid').innerHTML = sorted.map(d => `
+    <div class="device-card ${d.riskLevel}">
+      <div class="device-header">
+        <div>
+          <div class="device-name">${d.deviceName}</div>
+          <div class="device-type">${d.deviceType} · ${d.deviceId}</div>
+        </div>
+        <span class="badge badge-${d.riskLevel}">${d.riskLevel}</span>
+      </div>
+      <div class="risk-bar-wrap">
+        <div class="risk-bar-label">
+          <span>Risk Score</span>
+          <span style="color:${riskColor(d.riskLevel)};font-weight:600">${d.riskScore}/100</span>
+        </div>
+        <div class="risk-bar-track">
+          <div class="risk-bar-fill ${d.riskLevel}" style="width:${d.riskScore}%"></div>
+        </div>
+      </div>
+      <div class="factors">
+        ${d.factors.map(f=>`
+        <div class="factor-item">
+          <span>${f.name}</span>
+          <span class="factor-score">+${f.score}</span>
+        </div>`).join('')}
+      </div>
+      ${d.recommendations.length ? `
+      <div class="device-recs">
+        ${d.recommendations.filter(r=>r!=='No immediate actions required').map(r=>
+          `<div class="rec-item">${r}</div>`).join('')}
+      </div>` : ''}
+      <div class="device-actions">
+        <button class="btn" onclick="remediateDevice('${d.deviceId}','${d.deviceName}')">🔧 Remediate</button>
+        <button class="btn" onclick="analyseDevice('${d.deviceId}','${d.deviceName}')">🤖 AI Advice</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ─── Events ───────────────────────────────────────────────────────────────
+async function loadEvents() {
+  const data = await api('GET', '/security/events?limit=200');
+  if (!data.events) return;
+  const events = data.events;
+  if (!events.length) {
+    document.getElementById('eventsList').innerHTML = '';
+    document.getElementById('eventsEmpty').style.display = 'block';
+    return;
+  }
+  document.getElementById('eventsEmpty').style.display = 'none';
+  document.getElementById('eventsList').innerHTML = events.map(e => `
+    <div class="event-item ev-${e.severity}">
+      <div class="event-dot"></div>
+      <div class="event-body">
+        <div class="event-msg">${e.message}</div>
+        <div class="event-meta">
+          <span class="badge badge-${e.severity}">${e.severity}</span>
+          &nbsp;${e.type}
+          ${e.ip ? ' · IP: ' + e.ip : ''}
+          ${e.deviceId ? ' · Device: ' + e.deviceId : ''}
+        </div>
+      </div>
+      <div class="event-ts">${relTime(e.ts)}</div>
+    </div>
+  `).join('');
+}
+
+async function clearEvents() {
+  if (!confirm('Clear all security events?')) return;
+  await api('DELETE', '/security/events');
+  loadEvents();
+}
+
+// ─── Rate limits ──────────────────────────────────────────────────────────
+async function loadRateLimits() {
+  const data = await api('GET', '/security/rate-limits');
+  if (!data.rateLimits) return;
+  const rl = data.rateLimits.filter(e => e.requestsLastMin > 0 || e.authFailsLast5m > 0 || e.blocked);
+  if (!rl.length) {
+    document.getElementById('rateLimitBody').innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">No active rate limit entries.</td></tr>';
+    return;
+  }
+  document.getElementById('rateLimitBody').innerHTML = rl.map(e => `
+    <tr>
+      <td><code>${e.ip}</code></td>
+      <td>${e.requestsLastMin}</td>
+      <td style="color:${e.authFailsLast5m>=3?'var(--red)':e.authFailsLast5m>=1?'var(--yellow)':'inherit'}">${e.authFailsLast5m}</td>
+      <td>${e.blocked ? '<span class="badge badge-critical">BLOCKED</span>' : '<span class="badge badge-low">OK</span>'}</td>
+      <td style="color:var(--text-muted)">${e.blocked ? e.blockedUntil : '—'}</td>
+    </tr>
+  `).join('');
+}
+
+// ─── Actions ──────────────────────────────────────────────────────────────
+async function scanNow() {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = '⟳ Scanning…';
+  await api('POST', '/security/scan');
+  await loadAll();
+  btn.disabled = false;
+  btn.textContent = '⟳ Scan Now';
+}
+
+async function remediateDevice(id, name) {
+  const data = await api('POST', '/security/remediate/' + id);
+  if (data.actions) {
+    alert('Remediation steps for ' + name + ':\n\n' + data.actions.join('\n\n'));
+  }
+}
+
+async function analyseDevice(id, name) {
+  switchTab('ai');
+  document.getElementById('aiOutput').innerHTML = '<span class="spinner"></span>Analysing ' + name + '…';
+  const data = await api('POST', '/security/analyze');
+  if (data.analysis) {
+    renderAIOutput(data.analysis);
+  }
+}
+
+// ─── AI Analysis ──────────────────────────────────────────────────────────
+async function runAIAnalysis(force) {
+  const out = document.getElementById('aiOutput');
+  out.innerHTML = '<span class="spinner"></span>Sending device data to AI… this may take 10-30 seconds.';
+  const data = await api('POST', '/security/analyze');
+  if (data.error) {
+    out.textContent = 'Error: ' + data.error;
+    return;
+  }
+  if (data.analysis) {
+    renderAIOutput(data.analysis);
+    // Also show the device profiles below
+    if (data.profiles && data.profiles.length) {
+      document.getElementById('aiDeviceProfiles').innerHTML =
+        '<div class="section-title" style="margin-top:20px">Device Profiles Used in Analysis</div>' +
+        '<div class="devices-grid">' +
+        data.profiles.sort((a,b)=>b.riskScore-a.riskScore).slice(0,6).map(d=>`
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px">
+            <div style="font-weight:600">${d.deviceName}</div>
+            <div style="font-size:11px;color:var(--text-muted)">${d.deviceType}</div>
+            <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
+              <div style="flex:1;height:4px;background:var(--surface2);border-radius:2px">
+                <div style="height:100%;width:${d.riskScore}%;background:${riskColor(d.riskLevel)};border-radius:2px"></div>
+              </div>
+              <span style="color:${riskColor(d.riskLevel)};font-weight:600">${d.riskScore}</span>
+            </div>
+          </div>`).join('')
+        + '</div>';
+    }
+  }
+}
+
+function renderAIOutput(text) {
+  const out = document.getElementById('aiOutput');
+  // Basic markdown-ish coloring
+  const html = text
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/^(#{1,2} .+)$/gm, s => `<span class="h1">${s}</span>`)
+    .replace(/^(#{3} .+)$/gm,   s => `<span class="h2">${s}</span>`)
+    .replace(/\*\*(.+?)\*\*/g,  s => `<b>${s.slice(2,-2)}</b>`)
+    .replace(/CRITICAL/g, '<span class="crit">CRITICAL</span>')
+    .replace(/HIGH RISK/gi, '<span class="warn">HIGH RISK</span>');
+  out.innerHTML = html;
+}
+
+// ─── Auto-refresh every 60s ───────────────────────────────────────────────
+loadAll();
+setInterval(loadAll, 60_000);
+</script>
+</body>
+</html>
